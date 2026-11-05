@@ -1,0 +1,15 @@
+# local.conf di esempio per DevStack con Honey-Stack.
+# Copiare in /opt/stack/devstack/local.conf e lanciare ./stack.sh
+
+[[local|localrc]]
+ADMIN_PASSWORD=secret
+DATABASE_PASSWORD=$ADMIN_PASSWORD
+RABBIT_PASSWORD=$ADMIN_PASSWORD
+SERVICE_PASSWORD=$ADMIN_PASSWORD
+
+LOGFILE=$DEST/logs/stack.sh.log
+enable_plugin honey-stack https://github.com/BenedettoPio/honey-stack main
+
+# Facoltativi (valori predefiniti):
+# HONEYSTACK_PORT=5050
+# HONEYSTACK_DECOY_PROJECT=infra-ops
