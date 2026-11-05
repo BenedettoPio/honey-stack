@@ -203,5 +203,10 @@ def api_alerts():
                     for a in db.list_alerts(100)])
 
 
-if __name__ == "__main__":
+def main():
+    """Punto di ingresso del comando honey-stack-dashboard."""
     app.run(host="0.0.0.0", port=PORTA)
+
+
+if __name__ == "__main__":
+    main()

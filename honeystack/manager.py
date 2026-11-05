@@ -128,5 +128,10 @@ def main(argv):
     return 0
 
 
-if __name__ == "__main__":
+def cli():
+    """Punto di ingresso del comando honey-stack."""
     sys.exit(main(sys.argv))
+
+
+if __name__ == "__main__":
+    cli()

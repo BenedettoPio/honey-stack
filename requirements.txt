@@ -1,0 +1,4 @@
+openstacksdk
+oslo.messaging
+oslo.config
+Flask
