@@ -3,24 +3,25 @@
 Ascolta le notifiche CADF di Keystone su RabbitMQ, riconosce gli
 honeytoken registrati nel database e salva un allarme per ogni
 tentativo di autenticazione.
-Avvio: python -m honeystack.watcher
+Avvio: honey-stack-watcher
 """
 import configparser
-import time
+import signal
+import sys
+import threading
 
 from oslo_config import cfg
 import oslo_messaging
 
-from honeystack import db
-
-KEYSTONE_CONF = "/etc/keystone/keystone.conf"
+from honeystack import config, db
 
 
-def leggi_transport_url(path=KEYSTONE_CONF):
+def leggi_transport_url(path=None):
     """Legge l'indirizzo di RabbitMQ dalla configurazione di Keystone."""
     parser = configparser.ConfigParser(strict=False, interpolation=None)
-    parser.read(path)
-    return parser.get("oslo_messaging_notifications", "transport_url")
+    parser.read(path or config.get("keystone_conf"))
+    return parser.get("oslo_messaging_notifications", "transport_url",
+                      fallback=None)
 
 
 class AuthEndpoint:
@@ -30,6 +31,12 @@ class AuthEndpoint:
         event_type=r"^identity\.authenticate$")
 
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
+        try:
+            self._gestisci(payload)
+        except Exception as errore:
+            print("Errore nella gestione di un evento:", errore, flush=True)
+
+    def _gestisci(self, payload):
         initiator = payload.get("initiator", {})
         user_id = initiator.get("user_id") or initiator.get("id")
         honeytoken = db.get_active_honeytoken(user_id)
@@ -53,9 +60,20 @@ class AuthEndpoint:
 
 
 def main():
+    url = leggi_transport_url()
+    if not url:
+        print("Notifiche di Keystone non configurate: manca transport_url "
+              "in [oslo_messaging_notifications] di "
+              + config.get("keystone_conf"), flush=True)
+        sys.exit(1)
     db.connect().close()
-    transport = oslo_messaging.get_notification_transport(
-        cfg.CONF, url=leggi_transport_url())
+    config.attendi(url, "RabbitMQ", porta_predefinita=5672)
+
+    fermati = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: fermati.set())
+    signal.signal(signal.SIGINT, lambda *_: fermati.set())
+
+    transport = oslo_messaging.get_notification_transport(cfg.CONF, url=url)
     targets = [oslo_messaging.Target(topic="notifications",
                                      exchange="keystone")]
     listener = oslo_messaging.get_notification_listener(
@@ -63,12 +81,11 @@ def main():
         executor="threading", pool="honeystack")
     listener.start()
     print("Honey-Stack watcher in ascolto... (Ctrl+C per uscire)", flush=True)
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        listener.stop()
-        listener.wait()
+    while not fermati.wait(1):
+        pass
+    print("Arresto del watcher...", flush=True)
+    listener.stop()
+    listener.wait()
 
 
 if __name__ == "__main__":

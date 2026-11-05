@@ -1,0 +1,17 @@
+# Configurazione di Honey-Stack: copiare in /etc/honey-stack/honey-stack.conf
+# Il plugin DevStack la genera da solo con i valori reali.
+
+[DEFAULT]
+db_path = /opt/stack/data/honey-stack/honeystack.db
+decoy_dir = /opt/stack/data/honey-stack/esche
+decoy_project = infra-ops
+dashboard_port = 5050
+keystone_conf = /etc/keystone/keystone.conf
+
+[service_user]
+auth_url = http://127.0.0.1/identity
+username = honey-stack
+password = CAMBIAMI
+project_name = service
+user_domain_name = Default
+project_domain_name = Default

@@ -13,8 +13,9 @@ import sys
 from contextlib import closing
 from datetime import datetime, timezone
 
-DB_PATH = os.environ.get(
-    "HONEYSTACK_DB", "/opt/stack/data/honey-stack/honeystack.db")
+from honeystack import config
+
+DB_PATH = config.get("db_path")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS honeytokens (

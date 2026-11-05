@@ -3,7 +3,7 @@
 Interfaccia web e API REST per creare gli honeytoken, scaricare i file
 esca e consultare gli allarmi. L'accesso richiede un utente Keystone
 con ruolo admin.
-Avvio (dopo source openrc admin admin): python -m honeystack.app
+Avvio: honey-stack-dashboard
 """
 import functools
 import os
@@ -12,13 +12,13 @@ import openstack
 from flask import (Flask, abort, jsonify, redirect, render_template_string,
                    request, send_file, session, url_for)
 
-from honeystack import db, manager
+from honeystack import config, db, manager
 
 app = Flask(__name__)
 app.secret_key = os.urandom(32)
 
-AUTH_URL = os.environ.get("OS_AUTH_URL", "http://127.0.0.1/identity")
-PORTA = int(os.environ.get("HONEYSTACK_PORT", "5050"))
+AUTH_URL = config.auth_url()
+PORTA = int(config.get("dashboard_port"))
 GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE"}
 
 STILE = """
@@ -90,7 +90,7 @@ def token_valido(token):
     if not token:
         return False
     try:
-        conn = openstack.connect()
+        conn = config.connessione()
         risposta = conn.session.get(
             AUTH_URL + "/v3/auth/tokens",
             headers={"X-Subject-Token": token}, raise_exc=False)
@@ -205,6 +205,7 @@ def api_alerts():
 
 def main():
     """Punto di ingresso del comando honey-stack-dashboard."""
+    config.attendi(AUTH_URL, "Keystone")
     app.run(host="0.0.0.0", port=PORTA)
 
 

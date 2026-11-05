@@ -2,23 +2,20 @@
 
 Crea e rimuove gli utenti esca in Keystone, li registra nel database
 e genera i file esca da lasciare dove un attaccante puo' trovarli.
-Uso (dopo source openrc admin admin):
-    python -m honeystack.manager create NOME [LUOGO]
-    python -m honeystack.manager delete NOME
-    python -m honeystack.manager list
+Uso:
+    honey-stack create NOME [LUOGO]
+    honey-stack delete NOME
+    honey-stack list
 """
 import os
 import secrets
 import string
 import sys
 
-import openstack
+from honeystack import config, db
 
-from honeystack import db
-
-DECOY_PROJECT = os.environ.get("HONEYSTACK_PROJECT", "infra-ops")
-DECOY_DIR = os.environ.get(
-    "HONEYSTACK_DECOY_DIR", "/opt/stack/data/honey-stack/esche")
+DECOY_PROJECT = config.get("decoy_project")
+DECOY_DIR = config.get("decoy_dir")
 
 CLOUDS_YAML = """clouds:
   openstack:
@@ -60,7 +57,7 @@ def _progetto_esche(conn):
 
 
 def _auth_url(conn):
-    return conn.config.auth.get("auth_url") or os.environ["OS_AUTH_URL"]
+    return conn.config.auth.get("auth_url") or config.auth_url()
 
 
 def scrivi_file_esca(nome, password, progetto, auth_url):
@@ -79,7 +76,7 @@ def scrivi_file_esca(nome, password, progetto, auth_url):
 
 def create_honeytoken(nome, luogo="", conn=None):
     """Crea l'utente esca, lo registra e genera i file esca."""
-    conn = conn or openstack.connect()
+    conn = conn or config.connessione()
     if conn.identity.find_user(nome) is not None:
         raise ValueError("Esiste gia' un utente chiamato " + nome)
     progetto = _progetto_esche(conn)
@@ -97,7 +94,7 @@ def delete_honeytoken(nome, conn=None):
                 None)
     if esca is None:
         raise ValueError(nome + " non e' un honeytoken attivo")
-    conn = conn or openstack.connect()
+    conn = conn or config.connessione()
     conn.identity.delete_user(esca["user_id"], ignore_missing=True)
     db.disable_honeytoken(esca["user_id"])
 
