@@ -20,6 +20,7 @@ app.secret_key = os.urandom(32)
 AUTH_URL = config.auth_url()
 PORTA = int(config.get("dashboard_port"))
 GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE"}
+LOG = config.logging.getLogger(__name__)
 
 STILE = """
 body { font-family: sans-serif; margin: 2em; background: #f6f6f6; }
@@ -205,7 +206,9 @@ def api_alerts():
 
 def main():
     """Punto di ingresso del comando honey-stack-dashboard."""
+    config.setup_log()
     config.attendi(AUTH_URL, "Keystone")
+    LOG.info("Dashboard Honey-Stack sulla porta %s", PORTA)
     app.run(host="0.0.0.0", port=PORTA)
 
 

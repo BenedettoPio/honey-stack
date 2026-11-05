@@ -1,4 +1,5 @@
 openstacksdk
 oslo.messaging
 oslo.config
+oslo.log
 Flask

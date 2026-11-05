@@ -15,6 +15,8 @@ import oslo_messaging
 
 from honeystack import config, db
 
+LOG = config.logging.getLogger(__name__)
+
 
 def leggi_transport_url(path=None):
     """Legge l'indirizzo di RabbitMQ dalla configurazione di Keystone."""
@@ -33,8 +35,8 @@ class AuthEndpoint:
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
         try:
             self._gestisci(payload)
-        except Exception as errore:
-            print("Errore nella gestione di un evento:", errore, flush=True)
+        except Exception:
+            LOG.exception("Errore nella gestione di un evento")
 
     def _gestisci(self, payload):
         initiator = payload.get("initiator", {})
@@ -53,18 +55,19 @@ class AuthEndpoint:
             event_time=payload.get("eventTime"),
         )
         if nuovo:
-            print("ALLARME: honeytoken={} esito={} ip={} agente={} "
-                  "ora={}".format(honeytoken["name"], payload.get("outcome"),
-                                  host.get("address"), host.get("agent"),
-                                  payload.get("eventTime")), flush=True)
+            LOG.warning("ALLARME: honeytoken=%s esito=%s ip=%s agente=%s "
+                        "ora=%s", honeytoken["name"], payload.get("outcome"),
+                        host.get("address"), host.get("agent"),
+                        payload.get("eventTime"))
 
 
 def main():
+    config.setup_log()
     url = leggi_transport_url()
     if not url:
-        print("Notifiche di Keystone non configurate: manca transport_url "
-              "in [oslo_messaging_notifications] di "
-              + config.get("keystone_conf"), flush=True)
+        LOG.error("Notifiche di Keystone non configurate: manca "
+                  "transport_url in [oslo_messaging_notifications] di %s",
+                  config.get("keystone_conf"))
         sys.exit(1)
     db.connect().close()
     config.attendi(url, "RabbitMQ", porta_predefinita=5672)
@@ -80,10 +83,10 @@ def main():
         transport, targets, [AuthEndpoint()],
         executor="threading", pool="honeystack")
     listener.start()
-    print("Honey-Stack watcher in ascolto... (Ctrl+C per uscire)", flush=True)
+    LOG.info("Honey-Stack watcher in ascolto... (Ctrl+C per uscire)")
     while not fermati.wait(1):
         pass
-    print("Arresto del watcher...", flush=True)
+    LOG.info("Arresto del watcher...")
     listener.stop()
     listener.wait()
 
