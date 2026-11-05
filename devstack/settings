@@ -1,0 +1,12 @@
+# Impostazioni del plugin DevStack di Honey-Stack.
+# Ogni valore si puo' cambiare da local.conf (es. HONEYSTACK_PORT=6060).
+
+HONEYSTACK_DIR=${HONEYSTACK_DIR:-$DEST/honey-stack}
+HONEYSTACK_CONF_DIR=${HONEYSTACK_CONF_DIR:-/etc/honey-stack}
+HONEYSTACK_CONF=$HONEYSTACK_CONF_DIR/honey-stack.conf
+HONEYSTACK_DATA_DIR=${HONEYSTACK_DATA_DIR:-$DATA_DIR/honey-stack}
+HONEYSTACK_DECOY_PROJECT=${HONEYSTACK_DECOY_PROJECT:-infra-ops}
+HONEYSTACK_PORT=${HONEYSTACK_PORT:-5050}
+HONEYSTACK_SERVICE_USER=${HONEYSTACK_SERVICE_USER:-honey-stack}
+
+enable_service honey-stack-watcher honey-stack-dashboard
