@@ -14,7 +14,7 @@ import threading
 from oslo_config import cfg
 import oslo_messaging
 
-from honeystack import config, controllo, correlazione, db
+from honeystack import config, controllo, correlazione, db, quarantena
 
 LOG = config.logging.getLogger(__name__)
 
@@ -64,6 +64,8 @@ class AuthEndpoint:
                         host.get("address"), host.get("agent"),
                         payload.get("eventTime"))
             correlazione.analizza(host.get("address"))
+            if quarantena.da_isolare(payload.get("outcome")):
+                quarantena.isola(host.get("address"), honeytoken["name"])
 
 
 def main():

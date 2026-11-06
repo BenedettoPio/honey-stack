@@ -11,7 +11,7 @@ import os
 from flask import (Flask, abort, jsonify, redirect, render_template_string,
                    request, send_file, session, url_for)
 
-from honeystack import cloud, config, db, manager
+from honeystack import cloud, config, db, manager, quarantena
 
 app = Flask(__name__)
 app.secret_key = os.urandom(32)
@@ -22,7 +22,8 @@ GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE",
            "ruolo_assegnato": "GRAVE", "gruppo_assegnato": "GRAVE",
            "esca_disattivata": "ATTENZIONE",
            "esca_eliminata": "ATTENZIONE",
-           "brute_force": "GRAVE", "ricognizione": "GRAVE"}
+           "brute_force": "GRAVE", "ricognizione": "GRAVE",
+           "quarantena": "GRAVE"}
 LOG = config.logging.getLogger(__name__)
 
 STILE = """
@@ -59,6 +60,15 @@ PAGINA_DASHBOARD = """<!doctype html><html><head><meta charset="utf-8">
 <td>{{ a.event_time[:19] }}</td><td>{{ a.name }}</td>
 <td>{{ luoghi.get(a.name, '') }}</td><td>{{ a.source_ip or '-' }}</td>
 <td>{{ a.agent }}</td></tr>{% endfor %}</table>
+{% if quarantene %}<h2>VM in quarantena ({{ quarantene|length }})</h2>
+<table><tr><th>VM</th><th>IP</th><th>Esca usata</th><th>Dal (UTC)</th>
+<th></th></tr>
+{% for q in quarantene %}<tr><td>{{ q.server_name }}</td>
+<td>{{ q.source_ip }}</td><td>{{ q.honeytoken }}</td>
+<td>{{ q.started_at[:19] }}</td>
+<td><form method="post" action="{{ url_for('rilascia', voce=q.id) }}">
+<button>Rilascia</button></form></td></tr>{% endfor %}</table>
+{% endif %}
 <h2>Honeytoken attivi ({{ esche|length }})</h2>
 <table><tr><th>Nome</th><th>Luogo</th><th>Creato</th><th>File esca</th>
 <th></th></tr>
@@ -130,6 +140,7 @@ def dashboard():
     return render_template_string(
         PAGINA_DASHBOARD, stile=STILE, utente=session["utente"],
         allarmi=db.list_alerts(100), esche=db.list_honeytokens(),
+        quarantene=db.list_quarantine(),
         luoghi=luoghi, gravita=GRAVITA, messaggio=request.args.get("msg"))
 
 
@@ -177,6 +188,23 @@ def scarica(nome, file):
 @richiede_token
 def api_honeytokens():
     return jsonify([dict(h) for h in db.list_honeytokens()])
+
+
+@app.route("/quarantene/<int:voce>/rilascia", methods=["POST"])
+@richiede_login
+def rilascia(voce):
+    try:
+        vm = quarantena.rilascia(str(voce))
+        messaggio = "VM rilasciata: " + vm
+    except ValueError as errore:
+        messaggio = str(errore)
+    return redirect(url_for("dashboard", msg=messaggio))
+
+
+@app.route("/api/v1/quarantines")
+@richiede_token
+def api_quarantines():
+    return jsonify([dict(q) for q in db.list_quarantine()])
 
 
 @app.route("/api/v1/alerts")

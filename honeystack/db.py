@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS alerts (
     event_time  TEXT NOT NULL,
     received_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS quarantine (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    port_id         TEXT NOT NULL,
+    server_id       TEXT,
+    server_name     TEXT,
+    source_ip       TEXT,
+    honeytoken      TEXT,
+    original_groups TEXT NOT NULL,
+    started_at      TEXT NOT NULL,
+    released_at     TEXT
+);
 """
 
 
@@ -103,6 +114,55 @@ def alerts_from_ip_since(source_ip, since, path=DB_PATH):
         return conn.execute(
             "SELECT * FROM alerts WHERE source_ip = ? AND received_at >= ? "
             "ORDER BY id", (source_ip, since)).fetchall()
+
+
+def add_quarantine(port_id, server_id, server_name, source_ip, honeytoken,
+                   original_groups, path=DB_PATH):
+    """Registra una VM in quarantena; restituisce l'id della voce."""
+    with closing(connect(path)) as conn, conn:
+        cur = conn.execute(
+            "INSERT INTO quarantine (port_id, server_id, server_name, "
+            "source_ip, honeytoken, original_groups, started_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (port_id, server_id, server_name, source_ip, honeytoken,
+             original_groups, _now()))
+        return cur.lastrowid
+
+
+def delete_quarantine(voce_id, path=DB_PATH):
+    with closing(connect(path)) as conn, conn:
+        conn.execute("DELETE FROM quarantine WHERE id = ?", (voce_id,))
+
+
+def release_quarantine(voce_id, path=DB_PATH):
+    with closing(connect(path)) as conn, conn:
+        conn.execute("UPDATE quarantine SET released_at = ? WHERE id = ?",
+                     (_now(), voce_id))
+
+
+def active_quarantine_for_port(port_id, path=DB_PATH):
+    with closing(connect(path)) as conn:
+        return conn.execute(
+            "SELECT * FROM quarantine WHERE port_id = ? AND "
+            "released_at IS NULL", (port_id,)).fetchone()
+
+
+def active_quarantine_for(vm_o_ip, path=DB_PATH):
+    """Quarantena attiva per nome della VM, IP o id della voce."""
+    with closing(connect(path)) as conn:
+        return conn.execute(
+            "SELECT * FROM quarantine WHERE released_at IS NULL AND "
+            "(server_name = ? OR source_ip = ? OR CAST(id AS TEXT) = ?) "
+            "ORDER BY id DESC", (vm_o_ip, vm_o_ip, str(vm_o_ip))
+        ).fetchone()
+
+
+def list_quarantine(only_active=True, path=DB_PATH):
+    query = "SELECT * FROM quarantine"
+    if only_active:
+        query += " WHERE released_at IS NULL"
+    with closing(connect(path)) as conn:
+        return conn.execute(query + " ORDER BY id DESC").fetchall()
 
 
 def list_alerts(limit=50, path=DB_PATH):

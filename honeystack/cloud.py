@@ -134,6 +134,54 @@ class Cloud:
                     fisso = a["addr"]
         return server.id, fisso, floating
 
+    def porta_da_ip(self, ip):
+        """Porta Neutron della VM con quel floating IP o IP fisso.
+
+        Restituisce un dizionario (porta, VM, progetto, gruppi) o None se
+        l'indirizzo non appartiene a una VM del cloud.
+        """
+        rete = self.conn.network
+        port_id = None
+        for fip in rete.ips(floating_ip_address=ip):
+            port_id = fip.port_id
+        if port_id:
+            porta = rete.get_port(port_id)
+        else:
+            porte = [p for p in rete.ports(fixed_ips=["ip_address=" + ip])
+                     if (p.device_owner or "").startswith("compute:")]
+            if not porte:
+                return None
+            porta = porte[0]
+        if not (porta.device_owner or "").startswith("compute:"):
+            return None
+        gruppi = list(porta.security_group_ids or [])
+        return {"port_id": porta.id, "server_id": porta.device_id,
+                "project_id": porta.project_id, "gruppi": gruppi,
+                "nomi_gruppi": [rete.get_security_group(g).name
+                                for g in gruppi]}
+
+    def nome_vm(self, server_id):
+        return self.conn.compute.get_server(server_id).name
+
+    def gruppo_quarantena(self, nome, project_id):
+        """Security group senza regole (blocca tutto), creato se manca."""
+        rete = self.conn.network
+        gruppo = rete.find_security_group(nome, project_id=project_id)
+        if gruppo is None:
+            gruppo = rete.create_security_group(
+                name=nome, project_id=project_id,
+                description="Honey-Stack: VM in quarantena, nessun "
+                            "traffico permesso")
+            # Neutron aggiunge a ogni gruppo nuovo le regole che
+            # permettono tutto il traffico in uscita: si tolgono
+            for regola in rete.security_group_rules(
+                    security_group_id=gruppo.id):
+                rete.delete_security_group_rule(regola.id)
+        return gruppo.id
+
+    def imposta_gruppi(self, port_id, gruppi):
+        self.conn.network.update_port(port_id, security_group_ids=gruppi)
+
     def gruppi_utente(self, user_id):
         return [{"id": g.id, "nome": g.name}
                 for g in self.conn.identity.user_groups(user_id)]

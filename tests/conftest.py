@@ -25,7 +25,8 @@ AUTH_URL = "http://keystone.test/identity"
     "decoy_dir = {0}/esche\n"
     "decoy_project = infra-ops\n"
     "dashboard_port = 6060\n"
-    "keystone_conf = {0}/keystone.conf\n".format(CARTELLA))
+    "keystone_conf = {0}/keystone.conf\n"
+    "quarantine_enabled = false\n".format(CARTELLA))
 os.environ["HONEYSTACK_CONF"] = str(CARTELLA / "honey-stack.conf")
 os.environ["OS_AUTH_URL"] = AUTH_URL
 
@@ -44,6 +45,10 @@ class CloudFinto:
         self.gruppi = {}
         self.script = {}
         self.vm_rotta = False
+        self.porte = {}
+        self.vm = {}
+        self.gruppi_porta = {}
+        self.porta_rotta = False
 
     def auth_url(self):
         return AUTH_URL
@@ -63,6 +68,23 @@ class CloudFinto:
 
     def elimina_utente(self, user_id):
         self.chiamate.append(("elimina_utente", user_id))
+
+    # VM e porte del cloud, per la quarantena
+    def porta_da_ip(self, ip):
+        return self.porte.get(ip)
+
+    def nome_vm(self, server_id):
+        return self.vm[server_id]
+
+    def gruppo_quarantena(self, nome, project_id):
+        self.chiamate.append(("gruppo_quarantena", nome, project_id))
+        return "id-" + nome
+
+    def imposta_gruppi(self, port_id, gruppi):
+        if self.porta_rotta:
+            raise RuntimeError("Neutron non risponde")
+        self.chiamate.append(("imposta_gruppi", port_id, list(gruppi)))
+        self.gruppi_porta[port_id] = list(gruppi)
 
     # stato delle esche in Keystone, per il controllo periodico
     def stato_utente(self, user_id):

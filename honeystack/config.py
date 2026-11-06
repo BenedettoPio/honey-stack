@@ -53,6 +53,14 @@ OPZIONI = [
                     "in entrata), creato se manca."),
     cfg.StrOpt("vm_user", default="cirros",
                help="Utente della VM nella cui home finisce l'esca."),
+    cfg.BoolOpt("quarantine_enabled", default=True,
+                help="Isola le VM del cloud da cui viene usata un'esca."),
+    cfg.BoolOpt("quarantine_on_failure", default=False,
+                help="Isola la VM anche se la password dell'esca e' "
+                     "sbagliata (di norma solo con quella giusta)."),
+    cfg.StrOpt("quarantine_security_group", default="honey-quarantena",
+               help="Security group senza regole usato per isolare "
+                    "le VM, creato se manca."),
 ]
 
 OPZIONI_UTENTE = [

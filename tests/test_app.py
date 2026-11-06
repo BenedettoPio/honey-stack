@@ -118,3 +118,30 @@ def test_allarme_di_correlazione_in_dashboard(client):
     pagina = client.get("/").data.decode()
     assert 'class="grave"' in pagina
     assert "5 password sbagliate in 5 minuti" in pagina
+
+
+def test_quarantena_in_dashboard_e_rilascio(client, cloud_finto):
+    cloud_finto.gruppi_porta["porta-1"] = ["id-honey-quarantena"]
+    db.add_quarantine(port_id="porta-1", server_id="vm-1",
+                      server_name="web-01", source_ip="172.24.4.124",
+                      honeytoken="svc_deploy",
+                      original_groups='["sg-originale"]')
+    accedi(client)
+    pagina = client.get("/").data.decode()
+    assert "VM in quarantena (1)" in pagina
+    assert "web-01" in pagina
+    voce = db.list_quarantine()[0]["id"]
+    client.post("/quarantene/%d/rilascia" % voce)
+    assert db.list_quarantine() == []
+    assert cloud_finto.gruppi_porta["porta-1"] == ["sg-originale"]
+    assert "VM in quarantena" not in client.get("/").data.decode()
+
+
+def test_api_quarantene(client):
+    db.add_quarantine(port_id="porta-1", server_id="vm-1",
+                      server_name="web-01", source_ip="172.24.4.124",
+                      honeytoken="svc_deploy", original_groups="[]")
+    assert client.get("/api/v1/quarantines").status_code == 401
+    risposta = client.get("/api/v1/quarantines",
+                          headers={"X-Auth-Token": "token-admin"})
+    assert [q["server_name"] for q in risposta.get_json()] == ["web-01"]

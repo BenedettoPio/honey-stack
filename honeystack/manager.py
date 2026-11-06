@@ -7,6 +7,8 @@ Uso:
     honey-stack create-vm NOME VM      (esca dentro una nuova VM)
     honey-stack delete NOME
     honey-stack list
+    honey-stack quarantine-list        (VM in quarantena)
+    honey-stack release VM             (rilascia una VM, nome o IP)
 """
 import os
 import secrets
@@ -14,7 +16,7 @@ import string
 import sys
 
 from honeystack import cloud as cloud_mod
-from honeystack import config, db
+from honeystack import config, db, quarantena
 
 DECOY_PROJECT = config.get("decoy_project")
 DECOY_DIR = config.get("decoy_dir")
@@ -163,6 +165,13 @@ def main(argv):
         elif cmd == "delete" and len(argv) >= 3:
             delete_honeytoken(argv[2])
             print("Honeytoken eliminato:", argv[2])
+        elif cmd == "quarantine-list":
+            for q in db.list_quarantine():
+                print(q["server_name"], q["source_ip"], q["honeytoken"],
+                      q["started_at"])
+        elif cmd == "release" and len(argv) >= 3:
+            vm = quarantena.rilascia(argv[2])
+            print("VM rilasciata, gruppi originali ripristinati:", vm)
         elif cmd == "list":
             for h in db.list_honeytokens():
                 print(h["name"], h["user_id"], h["luogo"], h["created_at"])
