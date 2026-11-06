@@ -39,6 +39,9 @@ class CloudFinto:
         self.password = {}
         self.admin = {"admin": "secret"}
         self.token_validi = {"token-admin"}
+        self.stati = {}
+        self.ruoli = {}
+        self.gruppi = {}
 
     def auth_url(self):
         return AUTH_URL
@@ -58,6 +61,29 @@ class CloudFinto:
 
     def elimina_utente(self, user_id):
         self.chiamate.append(("elimina_utente", user_id))
+
+    # stato delle esche in Keystone, per il controllo periodico
+    def stato_utente(self, user_id):
+        return self.stati.get(user_id, "attivo")
+
+    def riattiva_utente(self, user_id):
+        self.chiamate.append(("riattiva_utente", user_id))
+        self.stati[user_id] = "attivo"
+
+    def ruoli_utente(self, user_id):
+        return list(self.ruoli.get(user_id, []))
+
+    def rimuovi_ruolo(self, user_id, ruolo):
+        self.chiamate.append(("rimuovi_ruolo", user_id, ruolo["ruolo"]))
+        self.ruoli[user_id].remove(ruolo)
+
+    def gruppi_utente(self, user_id):
+        return list(self.gruppi.get(user_id, []))
+
+    def rimuovi_da_gruppo(self, user_id, group_id):
+        self.chiamate.append(("rimuovi_da_gruppo", user_id, group_id))
+        self.gruppi[user_id] = [g for g in self.gruppi[user_id]
+                                if g["id"] != group_id]
 
     def login_admin(self, utente, password):
         return self.admin.get(utente) == password

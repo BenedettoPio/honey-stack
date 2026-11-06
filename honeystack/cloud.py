@@ -48,6 +48,53 @@ class Cloud:
     def elimina_utente(self, user_id):
         self.conn.identity.delete_user(user_id, ignore_missing=True)
 
+    def stato_utente(self, user_id):
+        """'assente', 'disattivato' oppure 'attivo'."""
+        utente = self.conn.identity.find_user(user_id)
+        if utente is None:
+            return "assente"
+        return "attivo" if utente.is_enabled else "disattivato"
+
+    def riattiva_utente(self, user_id):
+        self.conn.identity.update_user(user_id, is_enabled=True)
+
+    def ruoli_utente(self, user_id):
+        """Ruoli assegnati direttamente all'utente, con il loro ambito."""
+        ruoli = []
+        for a in self.conn.identity.role_assignments(
+                user_id=user_id, include_names=True):
+            ruolo = a.role or {}
+            for ambito, dati in (a.scope or {}).items():
+                dati = dati if isinstance(dati, dict) else {}
+                ruoli.append({
+                    "ruolo_id": ruolo.get("id"),
+                    "ruolo": ruolo.get("name", ruolo.get("id")),
+                    "ambito": ambito,
+                    "ambito_id": dati.get("id", "all"),
+                    "ambito_nome": dati.get("name",
+                                            dati.get("id", "all")),
+                })
+        return ruoli
+
+    def rimuovi_ruolo(self, user_id, ruolo):
+        identity = self.conn.identity
+        if ruolo["ambito"] == "project":
+            identity.unassign_project_role_from_user(
+                ruolo["ambito_id"], user_id, ruolo["ruolo_id"])
+        elif ruolo["ambito"] == "domain":
+            identity.unassign_domain_role_from_user(
+                ruolo["ambito_id"], user_id, ruolo["ruolo_id"])
+        else:
+            identity.unassign_system_role_from_user(
+                user_id, ruolo["ruolo_id"], "all")
+
+    def gruppi_utente(self, user_id):
+        return [{"id": g.id, "nome": g.name}
+                for g in self.conn.identity.user_groups(user_id)]
+
+    def rimuovi_da_gruppo(self, user_id, group_id):
+        self.conn.identity.remove_user_from_group(user_id, group_id)
+
     def login_admin(self, utente, password):
         """Vero se l'utente si autentica e ha il ruolo admin."""
         try:

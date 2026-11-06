@@ -18,7 +18,10 @@ app.secret_key = os.urandom(32)
 
 AUTH_URL = config.auth_url()
 PORTA = int(config.get("dashboard_port"))
-GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE"}
+GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE",
+           "ruolo_assegnato": "GRAVE", "gruppo_assegnato": "GRAVE",
+           "esca_disattivata": "ATTENZIONE",
+           "esca_eliminata": "ATTENZIONE"}
 LOG = config.logging.getLogger(__name__)
 
 STILE = """
@@ -48,12 +51,12 @@ PAGINA_DASHBOARD = """<!doctype html><html><head><meta charset="utf-8">
 {% if messaggio %}<p class="msg">{{ messaggio }}</p>{% endif %}
 <h2>Allarmi ({{ allarmi|length }})</h2>
 <table><tr><th>Gravita'</th><th>Orario (UTC)</th><th>Honeytoken</th>
-<th>Luogo dell'esca</th><th>IP sorgente</th><th>Strumento</th></tr>
+<th>Luogo dell'esca</th><th>IP sorgente</th><th>Strumento / dettaglio</th></tr>
 {% for a in allarmi %}<tr>
-<td><span class="{{ 'grave' if a.outcome == 'success' else 'attenzione' }}">
+<td><span class="{{ 'grave' if gravita.get(a.outcome) == 'GRAVE' else 'attenzione' }}">
 {{ gravita.get(a.outcome, a.outcome) }}</span></td>
 <td>{{ a.event_time[:19] }}</td><td>{{ a.name }}</td>
-<td>{{ luoghi.get(a.name, '') }}</td><td>{{ a.source_ip }}</td>
+<td>{{ luoghi.get(a.name, '') }}</td><td>{{ a.source_ip or '-' }}</td>
 <td>{{ a.agent }}</td></tr>{% endfor %}</table>
 <h2>Honeytoken attivi ({{ esche|length }})</h2>
 <table><tr><th>Nome</th><th>Luogo</th><th>Creato</th><th>File esca</th>

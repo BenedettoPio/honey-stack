@@ -14,7 +14,7 @@ import threading
 from oslo_config import cfg
 import oslo_messaging
 
-from honeystack import config, db
+from honeystack import config, controllo, db
 
 LOG = config.logging.getLogger(__name__)
 
@@ -88,11 +88,15 @@ def main():
         executor="threading", pool="honeystack")
     listener.start()
     LOG.info("Honey-Stack watcher in ascolto... (Ctrl+C per uscire)")
+    scheduler = threading.Thread(target=controllo.ciclo, args=(fermati,),
+                                 name="controllo-esche", daemon=True)
+    scheduler.start()
     while not fermati.wait(1):
         pass
     LOG.info("Arresto del watcher...")
     listener.stop()
     listener.wait()
+    scheduler.join(timeout=10)
 
 
 if __name__ == "__main__":

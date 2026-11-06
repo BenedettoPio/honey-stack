@@ -95,3 +95,15 @@ def test_api_honeytoken(client):
     risposta = client.get("/api/v1/honeytokens",
                           headers={"X-Auth-Token": "token-admin"})
     assert [h["name"] for h in risposta.get_json()] == ["svc_backup"]
+
+
+def test_allarme_del_controllo_in_dashboard(client):
+    db.save_alert(event_id="c1", user_id="u1", name="svc_backup",
+                  outcome="ruolo_assegnato", source_ip=None,
+                  agent="ruolo member su project demo: rimosso",
+                  event_time="2026-11-06T12:00:00")
+    accedi(client)
+    pagina = client.get("/").data.decode()
+    assert 'class="grave"' in pagina
+    assert "ruolo member su project demo" in pagina
+    assert "None" not in pagina

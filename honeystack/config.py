@@ -29,6 +29,9 @@ OPZIONI = [
                 help="Porta della dashboard e delle API."),
     cfg.StrOpt("keystone_conf", default="/etc/keystone/keystone.conf",
                help="Configurazione di Keystone (indirizzo di RabbitMQ)."),
+    cfg.IntOpt("check_interval", default=60, min=10,
+               help="Secondi tra un controllo delle esche e il "
+                    "successivo."),
 ]
 
 OPZIONI_UTENTE = [
