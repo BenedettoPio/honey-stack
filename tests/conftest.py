@@ -42,6 +42,8 @@ class CloudFinto:
         self.stati = {}
         self.ruoli = {}
         self.gruppi = {}
+        self.script = {}
+        self.vm_rotta = False
 
     def auth_url(self):
         return AUTH_URL
@@ -76,6 +78,23 @@ class CloudFinto:
     def rimuovi_ruolo(self, user_id, ruolo):
         self.chiamate.append(("rimuovi_ruolo", user_id, ruolo["ruolo"]))
         self.ruoli[user_id].remove(ruolo)
+
+    # VM con l'esca
+    def immagine_cirros(self):
+        return "cirros-0.6.3-x86_64-disk"
+
+    def gruppo_ssh(self, nome):
+        self.chiamate.append(("gruppo_ssh", nome))
+        return nome
+
+    def crea_vm(self, nome, script, immagine, flavor, rete, gruppo,
+                pool):
+        if self.vm_rotta:
+            raise RuntimeError("No valid host was found")
+        self.chiamate.append(("crea_vm", nome, immagine, flavor, rete,
+                              gruppo, pool))
+        self.script[nome] = script
+        return "id-vm-" + nome, "10.0.0.20", "172.24.4.115"
 
     def gruppi_utente(self, user_id):
         return list(self.gruppi.get(user_id, []))

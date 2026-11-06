@@ -38,6 +38,21 @@ OPZIONI = [
     cfg.IntOpt("brute_force_threshold", default=5, min=2,
                help="Password sbagliate dallo stesso IP, nella "
                     "finestra, che fanno scattare il brute force."),
+    cfg.StrOpt("vm_image", default="",
+               help="Immagine delle VM con l'esca; vuoto = la prima "
+                    "immagine CirrOS disponibile."),
+    cfg.StrOpt("vm_flavor", default="m1.tiny",
+               help="Flavor delle VM con l'esca."),
+    cfg.StrOpt("vm_network", default="private",
+               help="Rete delle VM con l'esca."),
+    cfg.StrOpt("vm_floating_pool", default="public",
+               help="Rete da cui prendere il floating IP; vuoto = "
+                    "nessun floating IP."),
+    cfg.StrOpt("vm_security_group", default="honey-esca",
+               help="Security group delle VM con l'esca (ping e SSH "
+                    "in entrata), creato se manca."),
+    cfg.StrOpt("vm_user", default="cirros",
+               help="Utente della VM nella cui home finisce l'esca."),
 ]
 
 OPZIONI_UTENTE = [

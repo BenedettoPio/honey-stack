@@ -88,6 +88,52 @@ class Cloud:
             identity.unassign_system_role_from_user(
                 user_id, ruolo["ruolo_id"], "all")
 
+    def immagine_cirros(self):
+        """Nome della prima immagine CirrOS disponibile."""
+        for immagine in self.conn.image.images():
+            if "cirros" in (immagine.name or "").lower():
+                return immagine.name
+        raise ValueError("Nessuna immagine CirrOS disponibile")
+
+    def gruppo_ssh(self, nome):
+        """Security group con ping e SSH in entrata, creato se manca."""
+        rete = self.conn.network
+        gruppo = rete.find_security_group(
+            nome, project_id=self.conn.current_project_id)
+        if gruppo is None:
+            gruppo = rete.create_security_group(
+                name=nome, description="VM con esca: ping e SSH")
+            rete.create_security_group_rule(
+                security_group_id=gruppo.id, direction="ingress",
+                ethertype="IPv4", protocol="icmp")
+            rete.create_security_group_rule(
+                security_group_id=gruppo.id, direction="ingress",
+                ethertype="IPv4", protocol="tcp",
+                port_range_min=22, port_range_max=22)
+        return gruppo.name
+
+    def crea_vm(self, nome, script, immagine, flavor, rete, gruppo,
+                pool):
+        """Avvia una VM con lo script di avvio e aspetta che sia attiva.
+
+        Restituisce (id, IP fisso, floating IP o None).
+        """
+        server = self.conn.create_server(
+            name=nome, image=immagine, flavor=flavor, network=rete,
+            security_groups=[gruppo], userdata=script, wait=True,
+            timeout=600, auto_ip=bool(pool), ip_pool=pool or None)
+        server = self.conn.compute.get_server(server.id)
+        fisso = floating = None
+        for indirizzi in (server.addresses or {}).values():
+            for a in indirizzi:
+                if a.get("version") != 4:
+                    continue
+                if a.get("OS-EXT-IPS:type") == "floating":
+                    floating = a["addr"]
+                else:
+                    fisso = a["addr"]
+        return server.id, fisso, floating
+
     def gruppi_utente(self, user_id):
         return [{"id": g.id, "nome": g.name}
                 for g in self.conn.identity.user_groups(user_id)]
