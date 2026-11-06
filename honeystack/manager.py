@@ -12,6 +12,7 @@ import secrets
 import string
 import sys
 
+from honeystack import cloud as cloud_mod
 from honeystack import config, db
 
 DECOY_PROJECT = config.get("decoy_project")
@@ -46,20 +47,6 @@ def genera_password(lunghezza=20):
     return "".join(secrets.choice(alfabeto) for _ in range(lunghezza))
 
 
-def _progetto_esche(conn):
-    """Restituisce il progetto isolato delle esche, creandolo se manca."""
-    progetto = conn.identity.find_project(DECOY_PROJECT)
-    if progetto is None:
-        progetto = conn.identity.create_project(
-            name=DECOY_PROJECT, domain_id="default",
-            description="Progetto isolato per honeytoken")
-    return progetto
-
-
-def _auth_url(conn):
-    return conn.config.auth.get("auth_url") or config.auth_url()
-
-
 def scrivi_file_esca(nome, password, progetto, auth_url):
     """Scrive clouds.yaml e openrc dell'esca; restituisce la cartella."""
     cartella = os.path.join(DECOY_DIR, nome)
@@ -74,28 +61,27 @@ def scrivi_file_esca(nome, password, progetto, auth_url):
     return cartella
 
 
-def create_honeytoken(nome, luogo="", conn=None):
+def create_honeytoken(nome, luogo="", cloud=None):
     """Crea l'utente esca, lo registra e genera i file esca."""
-    conn = conn or config.connessione()
-    if conn.identity.find_user(nome) is not None:
+    cloud = cloud or cloud_mod.Cloud()
+    if cloud.utente_esiste(nome):
         raise ValueError("Esiste gia' un utente chiamato " + nome)
-    progetto = _progetto_esche(conn)
+    progetto_id, progetto_nome = cloud.progetto_esche(DECOY_PROJECT)
     password = genera_password()
-    utente = conn.identity.create_user(
-        name=nome, password=password, domain_id="default",
-        default_project_id=progetto.id)
-    db.add_honeytoken(utente.id, nome, progetto.id, luogo)
-    return scrivi_file_esca(nome, password, progetto.name, _auth_url(conn))
+    user_id = cloud.crea_utente(nome, password, progetto_id)
+    db.add_honeytoken(user_id, nome, progetto_id, luogo)
+    return scrivi_file_esca(nome, password, progetto_nome,
+                            cloud.auth_url())
 
 
-def delete_honeytoken(nome, conn=None):
+def delete_honeytoken(nome, cloud=None):
     """Elimina un honeytoken: solo utenti registrati come esca."""
     esca = next((h for h in db.list_honeytokens() if h["name"] == nome),
                 None)
     if esca is None:
         raise ValueError(nome + " non e' un honeytoken attivo")
-    conn = conn or config.connessione()
-    conn.identity.delete_user(esca["user_id"], ignore_missing=True)
+    cloud = cloud or cloud_mod.Cloud()
+    cloud.elimina_utente(esca["user_id"])
     db.disable_honeytoken(esca["user_id"])
 
 

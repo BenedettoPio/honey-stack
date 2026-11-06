@@ -8,11 +8,10 @@ Avvio: honey-stack-dashboard
 import functools
 import os
 
-import openstack
 from flask import (Flask, abort, jsonify, redirect, render_template_string,
                    request, send_file, session, url_for)
 
-from honeystack import config, db, manager
+from honeystack import cloud, config, db, manager
 
 app = Flask(__name__)
 app.secret_key = os.urandom(32)
@@ -74,33 +73,12 @@ PAGINA_DASHBOARD = """<!doctype html><html><head><meta charset="utf-8">
 
 def login_keystone(utente, password):
     """Autentica l'utente su Keystone e verifica il ruolo admin."""
-    try:
-        conn = openstack.connect(
-            auth_url=AUTH_URL, username=utente, password=password,
-            project_name="admin", user_domain_name="Default",
-            project_domain_name="Default",
-            load_yaml_config=False, load_envvars=False)
-        accesso = conn.session.auth.get_access(conn.session)
-    except Exception:
-        return False
-    return "admin" in accesso.role_names
+    return cloud.Cloud().login_admin(utente, password)
 
 
 def token_valido(token):
     """Verifica un token Keystone e che abbia il ruolo admin."""
-    if not token:
-        return False
-    try:
-        conn = config.connessione()
-        risposta = conn.session.get(
-            AUTH_URL + "/v3/auth/tokens",
-            headers={"X-Subject-Token": token}, raise_exc=False)
-    except Exception:
-        return False
-    if risposta.status_code != 200:
-        return False
-    ruoli = risposta.json()["token"].get("roles", [])
-    return any(r["name"] == "admin" for r in ruoli)
+    return cloud.Cloud().token_admin(token)
 
 
 def richiede_login(funzione):

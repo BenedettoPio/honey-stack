@@ -6,6 +6,7 @@ tentativo di autenticazione.
 Avvio: honey-stack-watcher
 """
 import configparser
+import json
 import signal
 import sys
 import threading
@@ -39,6 +40,9 @@ class AuthEndpoint:
             LOG.exception("Errore nella gestione di un evento")
 
     def _gestisci(self, payload):
+        # con debug = True nel file di configurazione si vede l'evento
+        # CADF completo: serve a raccogliere i dati per i test
+        LOG.debug("Evento CADF: %s", json.dumps(payload))
         initiator = payload.get("initiator", {})
         user_id = initiator.get("user_id") or initiator.get("id")
         honeytoken = db.get_active_honeytoken(user_id)
