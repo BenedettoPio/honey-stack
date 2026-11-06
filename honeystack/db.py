@@ -97,6 +97,14 @@ def save_alert(event_id, user_id, name, outcome, source_ip, agent,
         return cur.rowcount == 1
 
 
+def alerts_from_ip_since(source_ip, since, path=DB_PATH):
+    """Allarmi da un IP ricevuti a partire da since (ISO, UTC)."""
+    with closing(connect(path)) as conn:
+        return conn.execute(
+            "SELECT * FROM alerts WHERE source_ip = ? AND received_at >= ? "
+            "ORDER BY id", (source_ip, since)).fetchall()
+
+
 def list_alerts(limit=50, path=DB_PATH):
     with closing(connect(path)) as conn:
         return conn.execute(

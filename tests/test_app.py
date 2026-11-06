@@ -107,3 +107,14 @@ def test_allarme_del_controllo_in_dashboard(client):
     assert 'class="grave"' in pagina
     assert "ruolo member su project demo" in pagina
     assert "None" not in pagina
+
+
+def test_allarme_di_correlazione_in_dashboard(client):
+    db.save_alert(event_id="k1", user_id="-", name="svc_backup",
+                  outcome="brute_force", source_ip="192.168.206.129",
+                  agent="5 password sbagliate in 5 minuti",
+                  event_time="2026-11-06T12:00:00")
+    accedi(client)
+    pagina = client.get("/").data.decode()
+    assert 'class="grave"' in pagina
+    assert "5 password sbagliate in 5 minuti" in pagina

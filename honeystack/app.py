@@ -21,7 +21,8 @@ PORTA = int(config.get("dashboard_port"))
 GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE",
            "ruolo_assegnato": "GRAVE", "gruppo_assegnato": "GRAVE",
            "esca_disattivata": "ATTENZIONE",
-           "esca_eliminata": "ATTENZIONE"}
+           "esca_eliminata": "ATTENZIONE",
+           "brute_force": "GRAVE", "ricognizione": "GRAVE"}
 LOG = config.logging.getLogger(__name__)
 
 STILE = """

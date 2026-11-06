@@ -32,6 +32,12 @@ OPZIONI = [
     cfg.IntOpt("check_interval", default=60, min=10,
                help="Secondi tra un controllo delle esche e il "
                     "successivo."),
+    cfg.IntOpt("correlation_window", default=300, min=10,
+               help="Finestra in secondi per correlare gli allarmi "
+                    "dallo stesso IP."),
+    cfg.IntOpt("brute_force_threshold", default=5, min=2,
+               help="Password sbagliate dallo stesso IP, nella "
+                    "finestra, che fanno scattare il brute force."),
 ]
 
 OPZIONI_UTENTE = [

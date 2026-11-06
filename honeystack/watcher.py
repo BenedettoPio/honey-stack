@@ -14,7 +14,7 @@ import threading
 from oslo_config import cfg
 import oslo_messaging
 
-from honeystack import config, controllo, db
+from honeystack import config, controllo, correlazione, db
 
 LOG = config.logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ class AuthEndpoint:
                         "ora=%s", honeytoken["name"], payload.get("outcome"),
                         host.get("address"), host.get("agent"),
                         payload.get("eventTime"))
+            correlazione.analizza(host.get("address"))
 
 
 def main():
