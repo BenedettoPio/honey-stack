@@ -1,0 +1,114 @@
+{
+  "admin_reale": {
+    "action": "authenticate",
+    "eventTime": "2026-11-06T10:36:51.817299+0000",
+    "eventType": "activity",
+    "id": "598b281a-e637-5b09-ad73-83787ca3c3e9",
+    "initiator": {
+      "host": {
+        "address": "192.168.206.131",
+        "agent": "openstacksdk/4.21.0 keystoneauth1/5.18.1 python-requests/2.34.2 CPython/3.12.3"
+      },
+      "id": "c358737e93c94d00b928002cc520858e",
+      "name": "admin",
+      "request_id": "req-6f64c853-06bc-4026-af15-aa5c2894161d",
+      "typeURI": "service/security/account/user",
+      "user_id": "c358737e93c94d00b928002cc520858e",
+      "username": "admin"
+    },
+    "observer": {
+      "id": "5b069d963e9f4dfbbc14055c2b5938b1",
+      "typeURI": "service/security"
+    },
+    "outcome": "success",
+    "target": {
+      "id": "aa047b7f-5445-5387-8398-2a2958772d94",
+      "typeURI": "service/security/account/user"
+    },
+    "typeURI": "http://schemas.dmtf.org/cloud/audit/1.0/event"
+  },
+  "esca_password_giusta": {
+    "action": "authenticate",
+    "eventTime": "2026-11-06T10:36:31.593952+0000",
+    "eventType": "activity",
+    "id": "826544c1-95a3-5b74-b3b9-675a0fd564f5",
+    "initiator": {
+      "host": {
+        "address": "192.168.206.129",
+        "agent": "curl/8.18.0"
+      },
+      "id": "06134f155799418ebfe6b30426a7a4a6",
+      "name": "svc_backup",
+      "request_id": "req-f65c8c75-ce36-4e51-8731-73af4d184306",
+      "typeURI": "service/security/account/user",
+      "user_id": "06134f155799418ebfe6b30426a7a4a6",
+      "username": "svc_backup"
+    },
+    "observer": {
+      "id": "5b069d963e9f4dfbbc14055c2b5938b1",
+      "typeURI": "service/security"
+    },
+    "outcome": "success",
+    "target": {
+      "id": "f638fb69-a215-5366-8304-495fbfaf5e37",
+      "typeURI": "service/security/account/user"
+    },
+    "typeURI": "http://schemas.dmtf.org/cloud/audit/1.0/event"
+  },
+  "esca_password_sbagliata": {
+    "action": "authenticate",
+    "eventTime": "2026-11-06T10:36:31.524504+0000",
+    "eventType": "activity",
+    "id": "d5bc80e5-a792-5641-b3b8-4366acf28009",
+    "initiator": {
+      "host": {
+        "address": "192.168.206.129",
+        "agent": "curl/8.18.0"
+      },
+      "id": "06134f155799418ebfe6b30426a7a4a6",
+      "name": "svc_backup",
+      "request_id": "req-816ed016-af12-43d6-b437-07764610cc78",
+      "typeURI": "service/security/account/user",
+      "user_id": "06134f155799418ebfe6b30426a7a4a6",
+      "username": "svc_backup"
+    },
+    "observer": {
+      "id": "5b069d963e9f4dfbbc14055c2b5938b1",
+      "typeURI": "service/security"
+    },
+    "outcome": "failure",
+    "target": {
+      "id": "a4aab521-5fef-5629-aac4-3e07f43c7ecf",
+      "typeURI": "service/security/account/user"
+    },
+    "typeURI": "http://schemas.dmtf.org/cloud/audit/1.0/event"
+  },
+  "utente_reale_password_sbagliata": {
+    "action": "authenticate",
+    "eventTime": "2026-11-06T10:36:52.525901+0000",
+    "eventType": "activity",
+    "id": "f3a7759a-d7cd-5d2d-bdd8-6155122b0d32",
+    "initiator": {
+      "host": {
+        "address": "192.168.206.131",
+        "agent": "curl/8.5.0"
+      },
+      "id": "b0874a833653447ca8b3acee041b47c1",
+      "name": "demo",
+      "request_id": "req-f269ec05-1ca4-476a-bbb4-8a9880581b1f",
+      "typeURI": "service/security/account/user",
+      "user_id": "b0874a833653447ca8b3acee041b47c1",
+      "username": "demo"
+    },
+    "observer": {
+      "id": "5b069d963e9f4dfbbc14055c2b5938b1",
+      "typeURI": "service/security"
+    },
+    "outcome": "failure",
+    "target": {
+      "id": "d9aead6f-af1d-5a7e-b8ec-56723a5facd8",
+      "typeURI": "service/security/account/user"
+    },
+    "typeURI": "http://schemas.dmtf.org/cloud/audit/1.0/event"
+  }
+}
