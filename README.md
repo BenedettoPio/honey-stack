@@ -11,20 +11,32 @@ Progetto per l'esame di Piattaforme di Cloud Computing, Laurea Magistrale LM-66,
 ## Architettura
 
 ```mermaid
-flowchart LR
-    A["Attaccante"] -->|"usa l'esca"| K["Keystone"]
-    A -->|"SSH"| VM["Istanza con l'esca"]
-    VM -->|"usa l'esca"| K
-    K -->|"evento CADF"| R["RabbitMQ"]
-    R -->|"oslo.messaging"| W["Watcher"]
-    W --> DB[("Database SQLite")]
-    W -->|"controllo ogni 60 s"| K
-    W -->|"quarantena"| N["Neutron"]
+flowchart TB
+    A["Attaccante"]
+    subgraph OS["OpenStack"]
+        K["Keystone"] -->|"2 evento CADF"| R["RabbitMQ"]
+        NV["Nova"]
+        N["Neutron"]
+        VM["Istanza con l'esca"]
+    end
+    subgraph HS["Honey-Stack"]
+        G["CLI honey-stack"]
+        W["Watcher<br/>correlazione, controllo periodico, quarantena"]
+        DB[("Database SQLite")]
+        D["Dashboard e API"]
+    end
+    O["Operatore"]
+    A -->|"1 usa l'esca"| K
+    A -->|"SSH"| VM
+    VM -->|"1 usa l'esca"| K
+    R -->|"3 oslo.messaging"| W
+    W -->|"4 allarme"| DB
+    DB --> D
+    D -->|"5 allarmi, rilascio"| O
+    W -->|"quarantena"| N
     N -.->|"isola"| VM
-    DB --> D["Dashboard e API"]
-    D --> O["Operatore"]
-    G["CLI honey-stack"] -->|"crea le esche"| K
-    G -->|"create-vm"| NV["Nova"]
+    G -->|"crea le esche"| K
+    G -->|"create-vm"| NV
     NV -.->|"crea"| VM
 ```
 
