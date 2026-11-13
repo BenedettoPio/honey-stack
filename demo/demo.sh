@@ -233,7 +233,7 @@ EOF
         sleep 1
     done
     show "ping -c 3 -W 1 $VM_IP"
-    show "vmssh hostname || echo '  connessione SSH fallita: la VM e isolata'"
+    show "vmssh hostname || echo '  connessione SSH fallita: la VM è isolata'"
     look "sezione 'VM in quarantena (1)' con il pulsante Rilascia, e l'allarme GRAVE 'quarantena'"
     pause
 

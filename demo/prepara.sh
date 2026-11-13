@@ -11,12 +11,20 @@
 #   3. VM con l'esca (predefinita web-01): accesa se e' spenta, rilasciata
 #      se e' rimasta in quarantena da una demo precedente;
 # e alla fine mostra le esche attive.
+#
+# Opzione: --azzera-allarmi mette da parte gli allarmi delle prove (prima
+# salva una copia del database), cosi' la demo parte da una dashboard
+# pulita. Le esche non vengono toccate.
 
 set -u
 
 VM=${DEMO_VM:-web-01}
 HONEY_STACK=${HONEY_STACK:-/opt/stack/data/venv/bin/honey-stack}
 OPENRC=${OPENRC:-/opt/stack/devstack/openrc}
+PYTHON=${PYTHON:-/opt/stack/data/venv/bin/python}
+CONF=${HONEYSTACK_CONF:-/etc/honey-stack/honey-stack.conf}
+AZZERA=0
+[[ ${1:-} == --azzera-allarmi ]] && AZZERA=1
 
 if [[ -t 1 ]]; then
     B=$'\e[1m'; GREEN=$'\e[32m'; RED=$'\e[31m'; CYAN=$'\e[36m'; R=$'\e[0m'
@@ -88,6 +96,23 @@ if [[ -n $ip_vm ]]; then
     if ping -c 1 -W 2 "$ip_vm" > /dev/null 2>&1; then ok "$VM risponde su $ip_vm"; else ko "$VM non risponde su $ip_vm"; fi
 else
     ko "$VM non ha un floating IP"
+fi
+
+if (( AZZERA )); then
+    title "Allarmi"
+    db=$(awk -F' *= *' '$1 == "db_path" {print $2}' "$CONF")
+    db=${db:-/opt/stack/data/honey-stack/honeystack.db}
+    copia="$db.$(date +%Y%m%d-%H%M%S).bak"
+    cp "$db" "$copia" || die "copia del database non riuscita"
+    "$PYTHON" - "$db" <<'EOF'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+n = db.execute("DELETE FROM alerts").rowcount
+db.execute("DELETE FROM quarantine WHERE released_at IS NOT NULL")
+db.commit()
+print(f"  {n} allarmi delle prove messi da parte")
+EOF
+    ok "Copia del database prima della pulizia: $copia"
 fi
 
 title "Esche attive"

@@ -182,7 +182,7 @@ cd /opt/stack/honey-stack
 
 ## Demo
 
-L'ambiente di prova è composto da una VM con DevStack e da una VM Kali Linux nel ruolo dell'attaccante. La demo si esegue da Kali, così negli allarmi compare l'indirizzo di chi attacca; la dashboard va tenuta aperta accanto.
+L'ambiente di prova è composto da una VM con DevStack e da una VM Kali Linux nel ruolo dell'attaccante. I due ruoli restano separati: su Kali gira solo l'attacco, così negli allarmi compare l'indirizzo di chi attacca; la dashboard, cioè la vista del difensore, è aperta sulla DevStack (`http://localhost:5050`).
 
 1. **Credenziali rubate dall'esterno.** L'attaccante trova un `clouds.yaml` esca e lo usa contro Keystone: un tentativo con password sbagliata genera un allarme ATTENZIONE, più tentativi ravvicinati l'allarme di brute force, la password giusta un allarme GRAVE.
 2. **Istanza compromessa.** L'attaccante entra in SSH in un'istanza creata con `honey-stack create-vm`, trova l'esca in `~/.config/openstack/clouds.yaml` e la usa: l'allarme indica l'istanza compromessa, che viene isolata in pochi secondi. L'operatore la rilascia dalla dashboard.
@@ -197,13 +197,13 @@ source /opt/stack/devstack/openrc admin admin
 /opt/stack/data/venv/bin/honey-stack create-vm svc_deploy web-01
 ```
 
-Prima di ogni demo (rimette l'indirizzo di `br-ex`, controlla i servizi, accende l'istanza e la rilascia se è rimasta in quarantena):
+Prima di ogni demo (rimette l'indirizzo di `br-ex`, controlla i servizi, accende l'istanza e la rilascia se è rimasta in quarantena; con `--azzera-allarmi` mette da parte gli allarmi delle prove, dopo averne salvato una copia):
 
 ```bash
-demo/prepara.sh
+demo/prepara.sh --azzera-allarmi
 ```
 
-Su Kali: si scarica il repository e, dalla dashboard, il `clouds.yaml` di `svc_backup` (finisce in `~/Downloads`).
+Su Kali si scarica il repository. Il `clouds.yaml` di `svc_backup` viene copiato su Kali in `~/Downloads` dal difensore, prima della demo (ad esempio scaricandolo dalla dashboard): rappresenta l'esca lasciata sul PC di uno sviluppatore, che l'attaccante trova. Durante la demo l'attaccante non conosce le credenziali della dashboard.
 
 ```bash
 git clone https://github.com/BenedettoPio/honey-stack
