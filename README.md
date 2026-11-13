@@ -182,15 +182,52 @@ cd /opt/stack/honey-stack
 
 ## Demo
 
-L'ambiente di prova è composto da una VM con DevStack e da una VM Kali Linux nel ruolo dell'attaccante.
+L'ambiente di prova è composto da una VM con DevStack e da una VM Kali Linux nel ruolo dell'attaccante. La demo si esegue da Kali, così negli allarmi compare l'indirizzo di chi attacca; la dashboard va tenuta aperta accanto.
 
-1. **Credenziali rubate dall'esterno.** L'attaccante trova un `clouds.yaml` esca e lo usa contro Keystone: un tentativo con password sbagliata genera un allarme ATTENZIONE, uno con la password giusta un allarme GRAVE. Più tentativi ravvicinati generano l'allarme di brute force.
-2. **Istanza compromessa.** L'attaccante entra in SSH in un'istanza creata con `honey-stack create-vm`, trova l'esca in `~/.config/openstack/clouds.yaml` e la usa: l'allarme indica l'istanza compromessa, che viene isolata in pochi secondi (la sessione SSH dell'attaccante si blocca). L'operatore la rilascia dalla dashboard.
+1. **Credenziali rubate dall'esterno.** L'attaccante trova un `clouds.yaml` esca e lo usa contro Keystone: un tentativo con password sbagliata genera un allarme ATTENZIONE, più tentativi ravvicinati l'allarme di brute force, la password giusta un allarme GRAVE.
+2. **Istanza compromessa.** L'attaccante entra in SSH in un'istanza creata con `honey-stack create-vm`, trova l'esca in `~/.config/openstack/clouds.yaml` e la usa: l'allarme indica l'istanza compromessa, che viene isolata in pochi secondi. L'operatore la rilascia dalla dashboard.
+
+### Preparazione
+
+Sulla DevStack, come utente `stack`, una volta sola:
+
+```bash
+source /opt/stack/devstack/openrc admin admin
+/opt/stack/data/venv/bin/honey-stack create svc_backup "PC dello sviluppatore"
+/opt/stack/data/venv/bin/honey-stack create-vm svc_deploy web-01
+```
+
+Prima di ogni demo (rimette l'indirizzo di `br-ex`, controlla i servizi, accende l'istanza e la rilascia se è rimasta in quarantena):
+
+```bash
+demo/prepara.sh
+```
+
+Su Kali: si scarica il repository e, dalla dashboard, il `clouds.yaml` di `svc_backup` (finisce in `~/Downloads`).
+
+```bash
+git clone https://github.com/BenedettoPio/honey-stack
+cd honey-stack
+demo/demo.sh check
+```
+
+### Esecuzione
+
+[`demo/demo.sh`](demo/demo.sh), su Kali:
+
+```bash
+demo/demo.sh scenario1 ~/Downloads/clouds.yaml   # credenziali rubate dall'esterno
+demo/demo.sh scenario2                           # istanza compromessa, quarantena e rilascio
+demo/demo.sh all ~/Downloads/clouds.yaml         # controlli ed entrambi gli scenari
+```
+
+Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nella dashboard e si ferma tra un passo e l'altro (`demo/demo.sh --no-pause …` non si ferma). Nello scenario 2 attende che l'operatore rilasci l'istanza dalla dashboard. Indirizzi e nomi si possono cambiare con le variabili `DEMO_*` descritte in testa allo script.
 
 ## Struttura del repository
 
 ```
 devstack/        plugin DevStack (plugin.sh, settings, local.conf.sample)
+demo/            script della demo (demo.sh su Kali, prepara.sh sulla DevStack)
 etc/             esempio del file di configurazione
 honeystack/      codice del servizio
 tests/           test automatici ed eventi CADF reali
