@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block main %}
+  <p>Ultimi 100 allarmi. La pagina si aggiorna da sola ogni 10 secondi.</p>
+  {{ table.render }}
+  <script>
+    setTimeout(function () { window.location.reload(); }, 10000);
+  </script>
+{% endblock %}

@@ -1,23 +1,26 @@
-"""Honey-Stack - Dashboard e API.
+"""Honey-Stack - API REST.
 
-Interfaccia web e API REST per creare gli honeytoken, scaricare i file
-esca e consultare gli allarmi. L'accesso richiede un utente Keystone
-con ruolo admin.
-Avvio: honey-stack-dashboard
+Espone esche, allarmi e quarantene al pannello di Horizon (e a chiunque
+abbia un token Keystone con ruolo admin). Ogni richiesta deve portare
+il token nell'intestazione X-Auth-Token: e' quello dell'utente entrato
+in Horizon, quindi non serve un secondo login.
+Avvio: honey-stack-dashboard (servizio devstack@honey-stack-dashboard)
 """
 import functools
 import os
+import re
 
-from flask import (Flask, abort, jsonify, redirect, render_template_string,
-                   request, send_file, session, url_for)
+from flask import Flask, abort, jsonify, request, send_file
 
 from honeystack import cloud, config, db, manager, quarantena
 
 app = Flask(__name__)
-app.secret_key = os.urandom(32)
 
 AUTH_URL = config.auth_url()
 PORTA = int(config.get("dashboard_port"))
+FILE_ESCA = ("clouds.yaml", "openrc")
+# nome dell'esca: diventa utente Keystone e cartella dei file esca
+NOME_VALIDO = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE",
            "ruolo_assegnato": "GRAVE", "gruppo_assegnato": "GRAVE",
            "esca_disattivata": "ATTENZIONE",
@@ -26,162 +29,45 @@ GRAVITA = {"success": "GRAVE", "failure": "ATTENZIONE",
            "quarantena": "GRAVE"}
 LOG = config.logging.getLogger(__name__)
 
-STILE = """
-body { font-family: sans-serif; margin: 2em; background: #f6f6f6; }
-h1 { margin-bottom: 0; } table { border-collapse: collapse; width: 100%;
-background: white; margin-bottom: 2em; } th, td { padding: 6px 10px;
-border-bottom: 1px solid #ddd; text-align: left; } th { background: #eee; }
-.grave { color: white; background: #c0392b; padding: 2px 8px; }
-.attenzione { color: black; background: #f1c40f; padding: 2px 8px; }
-.msg { background: #dff0d8; padding: 8px; } .err { color: #c0392b; }
-"""
-
-PAGINA_LOGIN = """<!doctype html><html><head><meta charset="utf-8">
-<title>Honey-Stack - Login</title><style>{{ stile }}</style></head><body>
-<h1>Honey-Stack</h1><p>Accesso con credenziali OpenStack (ruolo admin)</p>
-{% if errore %}<p class="err">{{ errore }}</p>{% endif %}
-<form method="post">
-<p><input name="utente" placeholder="Utente"></p>
-<p><input name="password" type="password" placeholder="Password"></p>
-<p><button>Accedi</button></p></form></body></html>"""
-
-PAGINA_DASHBOARD = """<!doctype html><html><head><meta charset="utf-8">
-<script>setTimeout(function () { location.replace("/"); }, 10000);</script>
-<title>Honey-Stack</title><style>{{ stile }}</style></head><body>
-<h1>Honey-Stack</h1>
-<p>Utente: <b>{{ utente }}</b> - <a href="{{ url_for('logout') }}">Esci</a></p>
-{% if messaggio %}<p class="msg">{{ messaggio }}</p>{% endif %}
-<h2>Allarmi ({{ allarmi|length }})</h2>
-<table><tr><th>Gravita'</th><th>Orario (UTC)</th><th>Honeytoken</th>
-<th>Luogo dell'esca</th><th>IP sorgente</th><th>Strumento / dettaglio</th></tr>
-{% for a in allarmi %}<tr>
-<td><span class="{{ 'grave' if gravita.get(a.outcome) == 'GRAVE' else 'attenzione' }}">
-{{ gravita.get(a.outcome, a.outcome) }}</span></td>
-<td>{{ a.event_time[:19] }}</td><td>{{ a.name }}</td>
-<td>{{ luoghi.get(a.name, '') }}</td><td>{{ a.source_ip or '-' }}</td>
-<td>{{ a.agent }}</td></tr>{% endfor %}</table>
-{% if quarantene %}<h2>VM in quarantena ({{ quarantene|length }})</h2>
-<table><tr><th>VM</th><th>IP</th><th>Esca usata</th><th>Dal (UTC)</th>
-<th></th></tr>
-{% for q in quarantene %}<tr><td>{{ q.server_name }}</td>
-<td>{{ q.source_ip }}</td><td>{{ q.honeytoken }}</td>
-<td>{{ q.started_at[:19] }}</td>
-<td><form method="post" action="{{ url_for('rilascia', voce=q.id) }}">
-<button>Rilascia</button></form></td></tr>{% endfor %}</table>
-{% endif %}
-<h2>Honeytoken attivi ({{ esche|length }})</h2>
-<table><tr><th>Nome</th><th>Luogo</th><th>Creato</th><th>File esca</th>
-<th></th></tr>
-{% for h in esche %}<tr><td>{{ h.name }}</td><td>{{ h.luogo }}</td>
-<td>{{ h.created_at[:19] }}</td>
-<td><a href="{{ url_for('scarica', nome=h.name, file='clouds.yaml') }}">clouds.yaml</a>
-<a href="{{ url_for('scarica', nome=h.name, file='openrc') }}">openrc</a></td>
-<td><form method="post" action="{{ url_for('elimina', nome=h.name) }}">
-<button>Elimina</button></form></td></tr>{% endfor %}</table>
-<h2>Nuovo honeytoken</h2>
-<form method="post" action="{{ url_for('crea') }}">
-<input name="nome" placeholder="Nome (es. backup_admin)">
-<input name="luogo" placeholder="Luogo dell'esca">
-<button>Crea</button></form></body></html>"""
-
-
-def login_keystone(utente, password):
-    """Autentica l'utente su Keystone e verifica il ruolo admin."""
-    return cloud.Cloud().login_admin(utente, password)
-
 
 def token_valido(token):
-    """Verifica un token Keystone e che abbia il ruolo admin."""
+    """Verifica su Keystone un token e che abbia il ruolo admin."""
     return cloud.Cloud().token_admin(token)
-
-
-def richiede_login(funzione):
-    @functools.wraps(funzione)
-    def controllo(*args, **kwargs):
-        if "utente" not in session:
-            return redirect(url_for("login"))
-        return funzione(*args, **kwargs)
-    return controllo
 
 
 def richiede_token(funzione):
     @functools.wraps(funzione)
     def controllo(*args, **kwargs):
-        if "utente" in session or token_valido(
-                request.headers.get("X-Auth-Token")):
+        if token_valido(request.headers.get("X-Auth-Token")):
             return funzione(*args, **kwargs)
-        return jsonify(error="Token Keystone mancante o non valido"), 401
+        return errore(401, "Token Keystone mancante, non valido o senza "
+                           "ruolo admin")
     return controllo
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    errore = None
-    if request.method == "POST":
-        utente = request.form.get("utente", "")
-        if login_keystone(utente, request.form.get("password", "")):
-            session["utente"] = utente
-            return redirect(url_for("dashboard"))
-        errore = "Credenziali non valide o utente senza ruolo admin"
-    return render_template_string(PAGINA_LOGIN, stile=STILE, errore=errore)
+def errore(codice, messaggio):
+    return jsonify(error=messaggio), codice
 
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
+def esca_attiva(nome):
+    return next((h for h in db.list_honeytokens() if h["name"] == nome),
+                None)
 
 
 @app.route("/")
-@richiede_login
-def dashboard():
+def versioni():
+    """Descrizione del servizio, senza autenticazione."""
+    return jsonify(service="honey-stack", versions=["v1"])
+
+
+@app.route("/api/v1/alerts")
+@richiede_token
+def api_alerts():
     luoghi = {h["name"]: h["luogo"]
               for h in db.list_honeytokens(only_active=False)}
-    return render_template_string(
-        PAGINA_DASHBOARD, stile=STILE, utente=session["utente"],
-        allarmi=db.list_alerts(100), esche=db.list_honeytokens(),
-        quarantene=db.list_quarantine(),
-        luoghi=luoghi, gravita=GRAVITA, messaggio=request.args.get("msg"))
-
-
-@app.route("/honeytokens", methods=["POST"])
-@richiede_login
-def crea():
-    nome = request.form.get("nome", "").strip()
-    luogo = request.form.get("luogo", "").strip()
-    if not nome:
-        messaggio = "Inserisci un nome"
-    else:
-        try:
-            manager.create_honeytoken(nome, luogo)
-            messaggio = "Honeytoken creato: " + nome
-        except ValueError as errore:
-            messaggio = str(errore)
-    return redirect(url_for("dashboard", msg=messaggio))
-
-
-@app.route("/honeytokens/<nome>/delete", methods=["POST"])
-@richiede_login
-def elimina(nome):
-    try:
-        manager.delete_honeytoken(nome)
-        messaggio = "Honeytoken eliminato: " + nome
-    except ValueError as errore:
-        messaggio = str(errore)
-    return redirect(url_for("dashboard", msg=messaggio))
-
-
-@app.route("/honeytokens/<nome>/<file>")
-@richiede_login
-def scarica(nome, file):
-    if file not in ("clouds.yaml", "openrc"):
-        abort(404)
-    if not any(h["name"] == nome for h in db.list_honeytokens()):
-        abort(404)
-    percorso = os.path.join(manager.DECOY_DIR, nome, file)
-    if not os.path.exists(percorso):
-        abort(404)
-    return send_file(percorso, as_attachment=True, download_name=file)
+    return jsonify([dict(a, gravita=GRAVITA.get(a["outcome"], ""),
+                         luogo=luoghi.get(a["name"], ""))
+                    for a in db.list_alerts(100)])
 
 
 @app.route("/api/v1/honeytokens")
@@ -190,15 +76,44 @@ def api_honeytokens():
     return jsonify([dict(h) for h in db.list_honeytokens()])
 
 
-@app.route("/quarantene/<int:voce>/rilascia", methods=["POST"])
-@richiede_login
-def rilascia(voce):
+@app.route("/api/v1/honeytokens", methods=["POST"])
+@richiede_token
+def api_crea_honeytoken():
+    dati = request.get_json(silent=True) or {}
+    nome = str(dati.get("name", "")).strip()
+    luogo = str(dati.get("location", "")).strip()
+    if not NOME_VALIDO.match(nome) or nome.startswith("."):
+        return errore(400, "Nome dell'esca mancante o non valido: lettere, "
+                           "cifre, _ . - (massimo 64)")
     try:
-        vm = quarantena.rilascia(str(voce))
-        messaggio = "VM rilasciata: " + vm
-    except ValueError as errore:
-        messaggio = str(errore)
-    return redirect(url_for("dashboard", msg=messaggio))
+        manager.create_honeytoken(nome, luogo)
+    except ValueError as e:
+        return errore(409, str(e))
+    LOG.info("Honeytoken creato dalle API: %s", nome)
+    return jsonify(dict(esca_attiva(nome))), 201
+
+
+@app.route("/api/v1/honeytokens/<nome>", methods=["DELETE"])
+@richiede_token
+def api_elimina_honeytoken(nome):
+    try:
+        manager.delete_honeytoken(nome)
+    except ValueError as e:
+        return errore(404, str(e))
+    LOG.info("Honeytoken eliminato dalle API: %s", nome)
+    return "", 204
+
+
+@app.route("/api/v1/honeytokens/<nome>/files/<file>")
+@richiede_token
+def api_file_esca(nome, file):
+    if file not in FILE_ESCA or esca_attiva(nome) is None:
+        abort(404)
+    percorso = os.path.join(manager.DECOY_DIR, nome, file)
+    if not os.path.exists(percorso):
+        abort(404)
+    return send_file(percorso, mimetype="text/plain", as_attachment=True,
+                     download_name=file)
 
 
 @app.route("/api/v1/quarantines")
@@ -207,18 +122,20 @@ def api_quarantines():
     return jsonify([dict(q) for q in db.list_quarantine()])
 
 
-@app.route("/api/v1/alerts")
+@app.route("/api/v1/quarantines/<int:voce>/release", methods=["POST"])
 @richiede_token
-def api_alerts():
-    return jsonify([dict(a, gravita=GRAVITA.get(a["outcome"], ""))
-                    for a in db.list_alerts(100)])
+def api_rilascia(voce):
+    attiva = next((q for q in db.list_quarantine() if q["id"] == voce), None)
+    if attiva is None:
+        return errore(404, "Nessuna quarantena attiva con id %d" % voce)
+    return jsonify(server_name=quarantena.rilascia_voce(attiva))
 
 
 def main():
     """Punto di ingresso del comando honey-stack-dashboard."""
     config.setup_log()
     config.attendi(AUTH_URL, "Keystone")
-    LOG.info("Dashboard Honey-Stack sulla porta %s", PORTA)
+    LOG.info("API di Honey-Stack sulla porta %s", PORTA)
     app.run(host="0.0.0.0", port=PORTA)
 
 

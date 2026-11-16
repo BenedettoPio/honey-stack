@@ -1,0 +1,9 @@
+{% extends "horizon/common/_modal_form.html" %}
+
+{% block modal-body-right %}
+  <p>Honey-Stack crea in Keystone un utente esca, senza privilegi, nel
+     progetto delle esche, e genera i file <code>clouds.yaml</code> e
+     <code>openrc</code> con le sue credenziali.</p>
+  <p>Nessuno deve usare queste credenziali: ogni tentativo di accesso
+     diventa un allarme.</p>
+{% endblock %}

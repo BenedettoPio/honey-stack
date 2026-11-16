@@ -2,8 +2,9 @@
 # demo/demo.sh - demo di Honey-Stack dal punto di vista dell'attaccante.
 #
 # Da eseguire sulla VM Kali (l'attaccante), non sulla DevStack: cosi' negli
-# allarmi compare l'indirizzo di chi attacca. La dashboard di Honey-Stack
-# (http://<devstack>:5050) va tenuta aperta accanto, per vedere gli allarmi.
+# allarmi compare l'indirizzo di chi attacca. Horizon va tenuto aperto
+# accanto (http://<devstack>/dashboard, Admin -> Honey-Stack), per vedere
+# allarmi e quarantene.
 #
 # Comandi:
 #   demo/demo.sh check                 controlli prima della demo
@@ -15,7 +16,7 @@
 #   demo/demo.sh all [FILE]            check, scenario 1 e scenario 2
 #
 # Opzione: --no-pause (prima del comando) non aspetta Invio tra un passo
-# e l'altro. Il rilascio della VM dalla dashboard viene sempre atteso.
+# e l'altro. Il rilascio della VM da Horizon viene sempre atteso.
 #
 # Le variabili DEMO_* si possono cambiare da fuori, ad esempio:
 #   DEMO_VM_IP=172.24.4.200 demo/demo.sh scenario2
@@ -23,7 +24,8 @@
 set -u
 
 DEVSTACK=${DEMO_DEVSTACK:-192.168.206.131}
-DASHBOARD=${DEMO_DASHBOARD:-http://$DEVSTACK:5050}
+HORIZON=${DEMO_HORIZON:-http://$DEVSTACK/dashboard}
+API=${DEMO_API:-http://$DEVSTACK:5050}
 PUBLIC_NET=${DEMO_PUBLIC_NET:-172.24.4.0/24}
 VM_IP=${DEMO_VM_IP:-172.24.4.124}
 VM_USER=${DEMO_VM_USER:-cirros}
@@ -43,8 +45,8 @@ fi
 title() { echo; echo "${B}${CYAN}=== $* ===${R}"; }
 step()  { echo; echo "${B}--- $* ---${R}"; }
 say()   { echo "${DIM}$*${R}"; }
-# Cosa guardare nella dashboard dopo il passo
-look()  { echo "${YELLOW}Dashboard: $*${R}"; }
+# Cosa guardare in Horizon (Admin -> Honey-Stack) dopo il passo
+look()  { echo "${YELLOW}Horizon: $*${R}"; }
 ok()    { echo "  ${GREEN}$*${R}"; }
 ko()    { echo "  ${RED}$*${R}"; }
 # Mostra il comando e poi lo esegue
@@ -87,11 +89,19 @@ cmd_check() {
         errori=$((errori + 1))
     fi
 
-    codice=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$DASHBOARD/login")
+    codice=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$HORIZON/auth/login/")
     if [[ $codice == 200 ]]; then
-        ok "Dashboard di Honey-Stack raggiungibile ($DASHBOARD)"
+        ok "Horizon raggiungibile ($HORIZON, pannelli in Admin -> Honey-Stack)"
     else
-        ko "Dashboard NON raggiungibile ($DASHBOARD, codice $codice)"
+        ko "Horizon NON raggiungibile ($HORIZON, codice $codice)"
+        errori=$((errori + 1))
+    fi
+
+    codice=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$API/")
+    if [[ $codice == 200 ]]; then
+        ok "API di Honey-Stack raggiungibili ($API)"
+    else
+        ko "API di Honey-Stack NON raggiungibili ($API, codice $codice): sulla DevStack lancia demo/prepara.sh"
         errori=$((errori + 1))
     fi
 
@@ -136,7 +146,7 @@ cmd_check() {
 cmd_scenario1() {
     local file=${1:-$HOME/Downloads/clouds.yaml}
     local url utente password codice i
-    [[ -r $file ]] || die "file esca $file non trovato (scaricalo dalla dashboard: colonna 'File esca')"
+    [[ -r $file ]] || die "file esca $file non trovato (scaricalo da Horizon: Admin -> Honey-Stack -> Honeytoken, azione 'Scarica clouds.yaml')"
     url=$(campo "$file" auth_url)
     utente=$(campo "$file" username)
     password=$(campo "$file" password)
@@ -157,7 +167,7 @@ cmd_scenario1() {
     echo "${B}\$ curl ... $url/v3/auth/tokens  (utente $utente, password sbagliata)${R}"
     codice=$(accesso "$url" "$utente" "tentativo-1")
     echo "  risposta di Keystone: $codice"
-    look "allarme ATTENZIONE su $utente, con l'IP di Kali e lo strumento curl"
+    look "pannello Allarmi: ATTENZIONE su $utente, con l'IP di Kali e lo strumento curl"
     pause
 
     step "3. Brute force: altre $((BRUTE_FORCE - 1)) password sbagliate"
@@ -234,12 +244,12 @@ EOF
     done
     show "ping -c 3 -W 1 $VM_IP"
     show "vmssh hostname || echo '  connessione SSH fallita: la VM è isolata'"
-    look "sezione 'VM in quarantena (1)' con il pulsante Rilascia, e l'allarme GRAVE 'quarantena'"
+    look "pannello Quarantene: la VM con l'azione 'Rilascia VM'; nel pannello Allarmi il GRAVE 'quarantena'"
     pause
 
     step "4. Il rilascio, deciso dall'operatore"
     say "La VM resta accesa per l'analisi. Quando l'operatore ha controllato, la rilascia:"
-    look "premi 'Rilascia' accanto alla VM, nella sezione 'VM in quarantena'"
+    look "pannello Quarantene: premi 'Rilascia VM' accanto alla VM e conferma"
     echo "${DIM}In attesa del rilascio (al massimo 5 minuti)...${R}"
     for (( t = 0; t < 300; t += 3 )); do
         raggiungibile && break
@@ -263,5 +273,5 @@ case "${1:-}" in
     scenario1) cmd_scenario1 "${2:-}" ;;
     scenario2) cmd_scenario2 ;;
     all)       cmd_check && cmd_scenario1 "${2:-}" && cmd_scenario2 ;;
-    *)         sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    *)         sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

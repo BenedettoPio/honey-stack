@@ -23,8 +23,9 @@ flowchart TB
         G["CLI honey-stack"]
         W["Watcher<br/>correlazione, controllo periodico, quarantena"]
         DB[("Database SQLite")]
-        D["Dashboard e API"]
+        D["API REST"]
     end
+    H["Horizon<br/>Admin → Honey-Stack"]
     O["Operatore"]
     A -->|"1 usa l'esca"| K
     A -->|"SSH"| VM
@@ -32,7 +33,8 @@ flowchart TB
     R -->|"3 oslo.messaging"| W
     W -->|"4 allarme"| DB
     DB --> D
-    D -->|"5 allarmi, rilascio"| O
+    D -->|"5 dati, con il token dell'operatore"| H
+    H -->|"6 allarmi, rilascio"| O
     W -->|"quarantena"| N
     N -.->|"isola"| VM
     G -->|"crea le esche"| K
@@ -48,21 +50,22 @@ flowchart TB
 | Quarantena | `honeystack/quarantena.py` | isola via Neutron l'istanza da cui è stata usata un'esca, con rilascio |
 | Database | `honeystack/db.py` | SQLite con esche, allarmi e quarantene |
 | Gestore | `honeystack/manager.py` | comando `honey-stack`: crea e rimuove le esche, genera i file esca, crea le istanze con l'esca (`create-vm`), elenca e rilascia le quarantene |
-| Dashboard e API | `honeystack/app.py` | interfaccia Flask e API REST, accesso con Keystone (ruolo admin) |
+| API REST | `honeystack/app.py` | API Flask per esche, allarmi e quarantene; ogni richiesta porta un token Keystone con ruolo admin |
+| Pannelli Horizon | `honeystack_dashboard/` | gruppo **Honey-Stack** nella dashboard Admin di Horizon: pannelli Allarmi, Honeytoken e Quarantene, che leggono le API con il token dell'utente entrato in Horizon |
 | Accesso a OpenStack | `honeystack/cloud.py` | tutte le chiamate a Keystone, Nova, Glance e Neutron tramite `openstacksdk` |
 | Configurazione | `honeystack/config.py` | opzioni con `oslo.config`, log con `oslo.log` |
-| Plugin DevStack | `devstack/plugin.sh`, `devstack/settings` | installazione, configurazione e avvio con `./stack.sh` |
+| Plugin DevStack | `devstack/plugin.sh`, `devstack/settings` | installazione, configurazione e avvio con `./stack.sh`, compresa l'aggiunta dei pannelli a Horizon |
 
-Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di nessun servizio.
+Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di nessun servizio. Anche i pannelli si aggiungono a Horizon con il suo meccanismo dei plugin (file `enabled`), senza toccarne il codice.
 
 ## Come funziona
 
-1. **Creazione dell'esca.** L'amministratore crea un honeytoken dalla dashboard o con `honey-stack create`. Honey-Stack crea in Keystone un utente nel progetto isolato `infra-ops`, senza ruoli e con una password casuale, e genera i file esca.
+1. **Creazione dell'esca.** L'amministratore crea un honeytoken da Horizon (Admin → Honey-Stack → Honeytoken) o con `honey-stack create`. Honey-Stack crea in Keystone un utente nel progetto isolato `infra-ops`, senza ruoli e con una password casuale, e genera i file esca.
 2. **L'esca viene lasciata in giro**: su un PC, in un repository, in un backup, oppure dentro un'istanza del cloud con `honey-stack create-vm`.
 3. **L'attaccante la usa.** Per ogni tentativo di accesso Keystone pubblica su RabbitMQ un evento in formato CADF (Cloud Auditing Data Federation, lo standard di audit adottato da OpenStack), con utente, esito, IP e strumento.
 4. **Il watcher la riconosce** e salva un allarme: **ATTENZIONE** se la password era sbagliata, **GRAVE** se era giusta, cioè se chi la usa ha letto davvero il file esca.
 5. **Correlazione e risposta.** Gli allarmi dallo stesso IP vengono correlati. Se l'accesso riuscito parte da un'istanza del cloud, l'istanza viene messa in quarantena.
-6. **L'operatore** vede tutto nella dashboard e decide se rilasciare l'istanza.
+6. **L'operatore** vede tutto in Horizon, nei pannelli Admin → Honey-Stack, e decide se rilasciare l'istanza.
 
 ## Funzionalità
 
@@ -72,7 +75,7 @@ Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di ne
 - **Quarantena automatica**: se un'esca viene usata con successo da un'istanza, i suoi security group sono sostituiti da un gruppo senza regole, che blocca tutto il traffico (anche le connessioni già aperte). L'istanza resta accesa per l'analisi; il rilascio ripristina i gruppi originali.
 - **Correlazione degli attacchi**: brute force (5 password sbagliate in 5 minuti dallo stesso IP) e ricognizione (2 o più esche diverse dallo stesso IP).
 - **Controllo periodico delle esche** (ogni 60 s): ogni manomissione di un'esca genera un allarme. Se riceve un ruolo o un gruppo, Honey-Stack lo toglie; se viene disabilitata, la riattiva; se viene cancellata, la segnala e la disattiva.
-- **Integrazione con OpenStack**: servizio `deception` nel catalogo di Keystone, utente di servizio dedicato, configurazione con `oslo.config`, log con `oslo.log`, servizi systemd gestiti da DevStack.
+- **Integrazione con OpenStack**: pannelli nella dashboard Admin di Horizon, servizio `deception` nel catalogo di Keystone, utente di servizio dedicato, configurazione con `oslo.config`, log con `oslo.log`, servizi systemd gestiti da DevStack.
 
 ## Installazione
 
@@ -100,7 +103,8 @@ Il plugin, durante `./stack.sh`:
 - attiva in Keystone le notifiche CADF su RabbitMQ (anche per gli accessi riusciti);
 - crea l'utente di servizio `honey-stack`, il progetto delle esche `infra-ops` e il servizio `deception` nel catalogo, con endpoint sulla porta 5050;
 - scrive la configurazione in `/etc/honey-stack/honey-stack.conf`;
-- avvia i servizi `devstack@honey-stack-watcher` e `devstack@honey-stack-dashboard`. All'avvio il watcher attende che RabbitMQ sia raggiungibile e la dashboard che lo sia Keystone, riprovando finché non lo sono.
+- se Horizon è attivo, copia i file `enabled` dei pannelli in `/opt/stack/horizon/openstack_dashboard/local/enabled/`. Lo fa nella fase `post-config`, che DevStack esegue prima di preparare i file statici di Horizon e di riavviare Apache: così i pannelli compaiono senza altri passi;
+- avvia i servizi `devstack@honey-stack-watcher` e `devstack@honey-stack-dashboard` (quest'ultimo serve le API REST). All'avvio il watcher attende che RabbitMQ sia raggiungibile e le API che lo sia Keystone, riprovando finché non lo sono.
 
 Un nuovo `./stack.sh` ricrea Keystone da zero, quindi le esche registrate in precedenza non esistono più: il plugin sposta il database e i file esca precedenti in una cartella con la data (`/opt/stack/data/honey-stack.<data>`) e riparte vuoto.
 
@@ -129,19 +133,29 @@ honey-stack release VM              # rilascia un'istanza (nome, IP o ID)
 
 Con DevStack il comando si trova in `/opt/stack/data/venv/bin/honey-stack`. I file esca vengono scritti in `/opt/stack/data/honey-stack/esche/NOME/`.
 
-### Dashboard
+### Horizon
 
-`http://<host>:5050`, con le credenziali di un utente OpenStack con ruolo `admin`. Mostra gli allarmi per gravità, le istanze in quarantena (con il pulsante **Rilascia**) e le esche attive, e permette di creare esche e scaricare i file esca.
+In Horizon (`http://<host>/dashboard`), entrando con un utente con ruolo `admin`, il gruppo **Admin → Honey-Stack** contiene tre pannelli:
+
+- **Allarmi**: ultimi 100 allarmi con gravità (GRAVE in rosso, ATTENZIONE in giallo), orario, esca, luogo dell'esca, evento, IP sorgente e strumento. La pagina si aggiorna da sola ogni 10 secondi.
+- **Honeytoken**: esche attive; permette di crearne di nuove (**Crea honeytoken**), di scaricare `clouds.yaml` e `openrc` e di eliminarle.
+- **Quarantene**: istanze isolate, con l'azione **Rilascia VM**.
+
+I pannelli compaiono solo se il servizio `deception` è nel catalogo di Keystone. Non hanno un login proprio: chiamano le API REST con il token dell'utente già entrato in Horizon, e Honey-Stack lo verifica su Keystone.
 
 ### API REST
 
-Richiedono un token Keystone di un utente con ruolo `admin` nell'intestazione `X-Auth-Token`.
+Sulla porta 5050. Tranne `GET /`, che descrive il servizio, richiedono un token Keystone di un utente con ruolo `admin` nell'intestazione `X-Auth-Token`.
 
 | Metodo e percorso | Risposta |
 | --- | --- |
-| `GET /api/v1/alerts` | ultimi 100 allarmi, con gravità |
+| `GET /api/v1/alerts` | ultimi 100 allarmi, con gravità e luogo dell'esca |
 | `GET /api/v1/honeytokens` | esche attive |
+| `POST /api/v1/honeytokens` | crea un'esca: `{"name": "...", "location": "..."}` (201; 400 nome non valido; 409 utente già esistente) |
+| `DELETE /api/v1/honeytokens/NOME` | elimina un'esca (204; 404 se non è un'esca attiva) |
+| `GET /api/v1/honeytokens/NOME/files/FILE` | scarica `clouds.yaml` o `openrc` di un'esca attiva |
 | `GET /api/v1/quarantines` | istanze attualmente in quarantena |
+| `POST /api/v1/quarantines/ID/release` | rilascia la quarantena con quell'ID (404 se non è attiva) |
 
 ```bash
 TOKEN=$(openstack token issue -f value -c id)
@@ -161,7 +175,7 @@ Opzioni principali della sezione `[DEFAULT]`:
 | Opzione | Predefinito | Significato |
 | --- | --- | --- |
 | `decoy_project` | `infra-ops` | progetto Keystone delle esche |
-| `dashboard_port` | `5050` | porta della dashboard e delle API |
+| `dashboard_port` | `5050` | porta delle API REST |
 | `check_interval` | `60` | secondi tra un controllo delle esche e il successivo |
 | `correlation_window` | `300` | finestra in secondi per la correlazione |
 | `brute_force_threshold` | `5` | password sbagliate che fanno scattare il brute force |
@@ -174,7 +188,7 @@ La sezione `[service_user]` contiene le credenziali dell'utente di servizio, scr
 
 ## Test
 
-I test automatici (81) usano `pytest` e non richiedono un cloud attivo: le chiamate a OpenStack, raccolte in `honeystack/cloud.py`, vengono sostituite da un oggetto simulato. Gli eventi di ingresso sono eventi CADF reali registrati da Keystone (`tests/dati/eventi_cadf.json`, estratti con `tools/estrai_eventi.py`).
+I test automatici del servizio (94) usano `pytest` e non richiedono un cloud attivo: le chiamate a OpenStack, raccolte in `honeystack/cloud.py`, vengono sostituite da un oggetto simulato. Gli eventi di ingresso sono eventi CADF reali registrati da Keystone (`tests/dati/eventi_cadf.json`, estratti con `tools/estrai_eventi.py`).
 
 ```bash
 cd /opt/stack/honey-stack
@@ -182,12 +196,19 @@ cd /opt/stack/honey-stack
 /opt/stack/data/venv/bin/python -m pytest -q
 ```
 
+I pannelli di Horizon hanno test separati (12), che usano l'ambiente di test di Horizon e sostituiscono le API REST con risposte simulate:
+
+```bash
+DJANGO_SETTINGS_MODULE=honeystack_dashboard.tests.settings \
+    /opt/stack/data/venv/bin/python -m django test honeystack_dashboard.tests
+```
+
 ## Demo
 
-L'ambiente di prova è composto da una VM con DevStack e da una VM Kali Linux nel ruolo dell'attaccante. I due ruoli restano separati: su Kali gira solo l'attacco, così negli allarmi compare l'indirizzo di chi attacca; la dashboard, cioè la vista del difensore, è aperta sulla DevStack (`http://localhost:5050`).
+L'ambiente di prova è composto da una VM con DevStack e da una VM Kali Linux nel ruolo dell'attaccante. I due ruoli restano separati: su Kali gira solo l'attacco, così negli allarmi compare l'indirizzo di chi attacca; Horizon, cioè la vista del difensore, è aperto sulla DevStack (`http://localhost/dashboard`, Admin → Honey-Stack).
 
 1. **Credenziali rubate dall'esterno.** L'attaccante trova un `clouds.yaml` esca e lo usa contro Keystone: un tentativo con password sbagliata genera un allarme ATTENZIONE, più tentativi ravvicinati l'allarme di brute force, la password giusta un allarme GRAVE. Usato con il client ufficiale `openstack`, il file restituisce all'attaccante un errore, perché l'esca non ha ruoli, mentre il difensore vede un allarme GRAVE.
-2. **Istanza compromessa.** L'attaccante entra in SSH in un'istanza creata con `honey-stack create-vm`, trova l'esca in `~/.config/openstack/clouds.yaml` e la usa: l'allarme indica l'istanza compromessa, che viene isolata in pochi secondi. L'operatore la rilascia dalla dashboard.
+2. **Istanza compromessa.** L'attaccante entra in SSH in un'istanza creata con `honey-stack create-vm`, trova l'esca in `~/.config/openstack/clouds.yaml` e la usa: l'allarme indica l'istanza compromessa, che viene isolata in pochi secondi. L'operatore la rilascia da Horizon.
 
 ### Preparazione
 
@@ -199,13 +220,13 @@ source /opt/stack/devstack/openrc admin admin
 /opt/stack/data/venv/bin/honey-stack create-vm svc_deploy web-01
 ```
 
-Prima di ogni demo (rimette l'indirizzo di `br-ex`, controlla i servizi, accende l'istanza e la rilascia se è rimasta in quarantena; con `--azzera-allarmi` mette da parte gli allarmi delle prove, dopo averne salvato una copia):
+Prima di ogni demo (rimette l'indirizzo di `br-ex`, controlla i servizi, le API e i pannelli di Horizon, accende l'istanza e la rilascia se è rimasta in quarantena; con `--azzera-allarmi` mette da parte gli allarmi delle prove, dopo averne salvato una copia):
 
 ```bash
 demo/prepara.sh --azzera-allarmi
 ```
 
-Su Kali si scarica il repository. Il `clouds.yaml` di `svc_backup` viene copiato su Kali in `~/Downloads` dal difensore, prima della demo (ad esempio scaricandolo dalla dashboard): rappresenta l'esca lasciata sul PC di uno sviluppatore, che l'attaccante trova. Durante la demo l'attaccante non conosce le credenziali della dashboard.
+Su Kali si scarica il repository. Il `clouds.yaml` di `svc_backup` viene copiato su Kali in `~/Downloads` dal difensore, prima della demo (ad esempio scaricandolo da Horizon, pannello Honeytoken): rappresenta l'esca lasciata sul PC di uno sviluppatore, che l'attaccante trova. Durante la demo l'attaccante non conosce le credenziali di Horizon.
 
 ```bash
 git clone https://github.com/BenedettoPio/honey-stack
@@ -213,7 +234,7 @@ cd honey-stack
 demo/demo.sh check
 ```
 
-Su Kali servono `curl`, `ssh` e `ping`. `demo/demo.sh check` controlla che Keystone, la dashboard e l'istanza siano raggiungibili, aggiunge se manca la rotta verso la rete `public` di DevStack (`172.24.4.0/24` attraverso la DevStack) e installa `sshpass`, usato per entrare nell'istanza CirrOS. Il client ufficiale `openstack` è facoltativo: se è presente, lo scenario 1 lo usa per il tentativo più realistico.
+Su Kali servono `curl`, `ssh` e `ping`. `demo/demo.sh check` controlla che Keystone, Horizon, le API di Honey-Stack e l'istanza siano raggiungibili, aggiunge se manca la rotta verso la rete `public` di DevStack (`172.24.4.0/24` attraverso la DevStack) e installa `sshpass`, usato per entrare nell'istanza CirrOS. Il client ufficiale `openstack` è facoltativo: se è presente, lo scenario 1 lo usa per il tentativo più realistico.
 
 ```bash
 sudo apt update && sudo apt install -y python3-openstackclient
@@ -231,7 +252,7 @@ demo/demo.sh scenario2                           # istanza compromessa, quarante
 demo/demo.sh all ~/Downloads/clouds.yaml         # controlli ed entrambi gli scenari
 ```
 
-Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nella dashboard e si ferma tra un passo e l'altro (`demo/demo.sh --no-pause …` non si ferma). Nello scenario 2 attende che l'operatore rilasci l'istanza dalla dashboard. Indirizzi e nomi si possono cambiare con le variabili `DEMO_*` descritte in testa allo script.
+Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nei pannelli di Horizon e si ferma tra un passo e l'altro (`demo/demo.sh --no-pause …` non si ferma). Nello scenario 2 attende che l'operatore rilasci l'istanza dal pannello Quarantene. Indirizzi e nomi si possono cambiare con le variabili `DEMO_*` descritte in testa allo script.
 
 ## Scelte di sicurezza
 
@@ -241,8 +262,9 @@ Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nella da
 - **Quarantena solo quando la compromissione è certa.** Di base l'isolamento scatta solo con la password giusta, perché isolare un'istanza per errore significa interrompere un servizio; `quarantine_on_failure` permette di essere più severi. L'istanza non viene spenta né cancellata, per non perdere ciò che serve all'analisi, e il rilascio resta una decisione dell'operatore.
 - **Gruppo di quarantena davvero vuoto.** Neutron aggiunge a ogni nuovo security group le regole che permettono tutto il traffico in uscita: Honey-Stack le cancella, così l'istanza isolata non può nemmeno contattare l'esterno.
 - **Credenziali del servizio protette.** Honey-Stack usa un utente di servizio dedicato (con ruolo `admin`, necessario per gestire utenti e istanze di altri progetti). La sua password sta in `/etc/honey-stack/honey-stack.conf` con permessi `600` e il plugin la nasconde dal log di `stack.sh`.
-- **Accesso alla dashboard e alle API solo per amministratori**, verificato su Keystone a ogni login o token.
-- **Limiti noti.** La dashboard usa il server di sviluppo di Flask e i suoi form non hanno protezione CSRF: va bene per un ambiente di laboratorio come DevStack, non per la produzione.
+- **Accesso solo per amministratori.** I pannelli stanno nella dashboard Admin di Horizon, che ha già il suo login, le sue sessioni e la protezione CSRF dei form; le API verificano su Keystone, a ogni richiesta, che il token abbia il ruolo `admin`. Honey-Stack non ha più un'interfaccia web con login proprio.
+- **Nomi delle esche controllati.** Il nome di un'esca diventa un utente di Keystone e il nome di una cartella: API e pannello accettano solo lettere, cifre e `_ . -`, e i file si scaricano solo per esche attive, così una richiesta non può uscire dalla cartella delle esche.
+- **Limiti noti.** Le API usano il server di sviluppo di Flask, in HTTP: va bene per un ambiente di laboratorio come DevStack, non per la produzione, dove andrebbero messe dietro Apache con TLS come gli altri servizi.
 
 ## Struttura del repository
 
@@ -250,7 +272,8 @@ Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nella da
 devstack/        plugin DevStack (plugin.sh, settings, local.conf.sample)
 demo/            script della demo (demo.sh su Kali, prepara.sh sulla DevStack)
 etc/             esempio del file di configurazione
-honeystack/      codice del servizio
+honeystack/      codice del servizio (watcher, API REST, CLI)
+honeystack_dashboard/  pannelli di Horizon (Admin -> Honey-Stack) e loro test
 tests/           test automatici ed eventi CADF reali
 tools/           estrazione degli eventi CADF dal log del watcher
 ```

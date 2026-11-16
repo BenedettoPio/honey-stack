@@ -126,9 +126,6 @@ class CloudFinto:
         self.gruppi[user_id] = [g for g in self.gruppi[user_id]
                                 if g["id"] != group_id]
 
-    def login_admin(self, utente, password):
-        return self.admin.get(utente) == password
-
     def token_admin(self, token):
         return token in self.token_validi
 

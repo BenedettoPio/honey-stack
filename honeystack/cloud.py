@@ -1,11 +1,10 @@
 """Honey-Stack - Accesso a OpenStack.
 
-Tutte le chiamate a Keystone passano da qui: il resto del codice non
-dipende dai dettagli di openstacksdk e nei test la classe Cloud si
-sostituisce con una finta che registra le chiamate.
+Tutte le chiamate a OpenStack (Keystone, Nova, Glance, Neutron) passano
+da qui: il resto del codice non dipende dai dettagli di openstacksdk e
+nei test la classe Cloud si sostituisce con una finta che registra le
+chiamate.
 """
-import openstack
-
 from honeystack import config
 
 
@@ -188,19 +187,6 @@ class Cloud:
 
     def rimuovi_da_gruppo(self, user_id, group_id):
         self.conn.identity.remove_user_from_group(user_id, group_id)
-
-    def login_admin(self, utente, password):
-        """Vero se l'utente si autentica e ha il ruolo admin."""
-        try:
-            conn = openstack.connect(
-                auth_url=config.auth_url(), username=utente,
-                password=password, project_name="admin",
-                user_domain_name="Default", project_domain_name="Default",
-                load_yaml_config=False, load_envvars=False)
-            accesso = conn.session.auth.get_access(conn.session)
-        except Exception:
-            return False
-        return "admin" in accesso.role_names
 
     def token_admin(self, token):
         """Vero se il token Keystone e' valido e ha il ruolo admin."""

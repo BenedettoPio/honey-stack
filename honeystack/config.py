@@ -26,7 +26,7 @@ OPZIONI = [
     cfg.StrOpt("decoy_project", default="infra-ops",
                help="Progetto Keystone isolato delle esche."),
     cfg.PortOpt("dashboard_port", default=5050,
-                help="Porta della dashboard e delle API."),
+                help="Porta delle API REST (usate dai pannelli di Horizon)."),
     cfg.StrOpt("keystone_conf", default="/etc/keystone/keystone.conf",
                help="Configurazione di Keystone (indirizzo di RabbitMQ)."),
     cfg.IntOpt("check_interval", default=60, min=10,
@@ -92,7 +92,7 @@ def list_opts():
 
 
 def setup_log():
-    """Attiva i log nel formato di OpenStack (watcher e dashboard)."""
+    """Attiva i log nel formato di OpenStack (watcher e API)."""
     logging.setup(CONF, "honey-stack")
 
 

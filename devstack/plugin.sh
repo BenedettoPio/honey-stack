@@ -56,6 +56,18 @@ function configure_honeystack {
     iniset $HONEYSTACK_CONF service_user project_domain_name $SERVICE_DOMAIN_NAME
 }
 
+# Pannelli in Horizon (Admin -> Honey-Stack). I file "enabled" vanno
+# copiati prima di init_horizon, che subito dopo raccoglie e comprime
+# i file statici e riavvia Apache: per questo si fa in post-config.
+function configure_honeystack_horizon {
+    cp $HONEYSTACK_DIR/honeystack_dashboard/enabled/_9*_honeystack_*.py \
+        $HORIZON_DIR/openstack_dashboard/local/enabled/
+}
+
+function cleanup_honeystack_horizon {
+    rm -f $HORIZON_DIR/openstack_dashboard/local/enabled/_9*_honeystack_*.py
+}
+
 function start_honeystack {
     local bin_dir
     bin_dir=$(get_python_exec_prefix)
@@ -70,6 +82,9 @@ function stop_honeystack {
 
 function cleanup_honeystack {
     sudo rm -rf $HONEYSTACK_CONF_DIR
+    if is_service_enabled horizon; then
+        cleanup_honeystack_horizon
+    fi
 }
 
 if is_service_enabled honey-stack-watcher honey-stack-dashboard; then
@@ -82,6 +97,9 @@ if is_service_enabled honey-stack-watcher honey-stack-dashboard; then
         create_honeystack_accounts
         archive_honeystack_data
         configure_honeystack
+        if is_service_enabled horizon; then
+            configure_honeystack_horizon
+        fi
     elif [[ "$1" == "stack" && "$2" == "extra" ]]; then
         echo_summary "Avvio di Honey-Stack"
         start_honeystack

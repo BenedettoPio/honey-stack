@@ -7,14 +7,15 @@
 # Rimette in ordine cio' che un riavvio della DevStack lascia indietro:
 #   1. indirizzo di br-ex, senza il quale floating IP e SSH verso le VM
 #      non funzionano;
-#   2. servizi di Honey-Stack (watcher e dashboard);
+#   2. servizi di Honey-Stack (watcher e API) e Apache, che serve Horizon
+#      con i pannelli Admin -> Honey-Stack;
 #   3. VM con l'esca (predefinita web-01): accesa se e' spenta, rilasciata
 #      se e' rimasta in quarantena da una demo precedente;
 # e alla fine mostra le esche attive.
 #
 # Opzione: --azzera-allarmi mette da parte gli allarmi delle prove (prima
-# salva una copia del database), cosi' la demo parte da una dashboard
-# pulita. Le esche non vengono toccate.
+# salva una copia del database), cosi' la demo parte con il pannello
+# Allarmi vuoto. Le esche non vengono toccate.
 
 set -u
 
@@ -63,6 +64,21 @@ for s in devstack@honey-stack-watcher devstack@honey-stack-dashboard; do
     fi
     if systemctl is-active --quiet "$s"; then ok "$s attivo"; else ko "$s NON attivo"; fi
 done
+porta=$(awk -F' *= *' '$1 == "dashboard_port" {print $2}' "$CONF")
+if curl -sf -o /dev/null --max-time 5 "http://127.0.0.1:${porta:-5050}/"; then
+    ok "API di Honey-Stack in ascolto"
+else
+    ko "API di Honey-Stack NON raggiungibili: journalctl -u devstack@honey-stack-dashboard"
+fi
+if ! systemctl is-active --quiet apache2; then
+    echo "  apache2 non attivo: lo riavvio"
+    sudo systemctl restart apache2
+fi
+if ls /opt/stack/horizon/openstack_dashboard/local/enabled/_9*_honeystack_*.py > /dev/null 2>&1; then
+    ok "Pannelli Honey-Stack presenti in Horizon (Admin -> Honey-Stack)"
+else
+    ko "Pannelli Honey-Stack NON installati in Horizon: vedi README, sezione Horizon"
+fi
 
 title "VM con l'esca ($VM)"
 riga=$(openstack server list --all-projects --name "^$VM\$" -f value -c ID -c Status | head -1)
@@ -119,4 +135,4 @@ title "Esche attive"
 "$HONEY_STACK" list
 
 echo
-echo "${B}DevStack pronta. Su Kali: demo/demo.sh check${R}"
+echo "${B}DevStack pronta. Apri Horizon (Admin -> Honey-Stack) e su Kali: demo/demo.sh check${R}"
