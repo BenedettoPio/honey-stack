@@ -47,9 +47,9 @@ flowchart TB
 | Controllo periodico | `honeystack/controllo.py` | verifica che le esche restino senza ruoli né gruppi, abilitate ed esistenti |
 | Quarantena | `honeystack/quarantena.py` | isola via Neutron l'istanza da cui è stata usata un'esca, con rilascio |
 | Database | `honeystack/db.py` | SQLite con esche, allarmi e quarantene |
-| Gestore | `honeystack/manager.py` | comando `honey-stack`: crea e rimuove le esche, genera i file esca |
+| Gestore | `honeystack/manager.py` | comando `honey-stack`: crea e rimuove le esche, genera i file esca, crea le istanze con l'esca (`create-vm`), elenca e rilascia le quarantene |
 | Dashboard e API | `honeystack/app.py` | interfaccia Flask e API REST, accesso con Keystone (ruolo admin) |
-| Accesso a OpenStack | `honeystack/cloud.py` | tutte le chiamate a Keystone, Nova e Neutron tramite `openstacksdk` |
+| Accesso a OpenStack | `honeystack/cloud.py` | tutte le chiamate a Keystone, Nova, Glance e Neutron tramite `openstacksdk` |
 | Configurazione | `honeystack/config.py` | opzioni con `oslo.config`, log con `oslo.log` |
 | Plugin DevStack | `devstack/plugin.sh`, `devstack/settings` | installazione, configurazione e avvio con `./stack.sh` |
 
@@ -71,7 +71,7 @@ Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di ne
 - **Esca dentro un'istanza**: `honey-stack create-vm` crea un'istanza Nova e, tramite uno script di avvio (user-data), scrive l'esca in `~/.config/openstack/clouds.yaml`. L'allarme indica quale istanza è stata compromessa.
 - **Quarantena automatica**: se un'esca viene usata con successo da un'istanza, i suoi security group sono sostituiti da un gruppo senza regole, che blocca tutto il traffico (anche le connessioni già aperte). L'istanza resta accesa per l'analisi; il rilascio ripristina i gruppi originali.
 - **Correlazione degli attacchi**: brute force (5 password sbagliate in 5 minuti dallo stesso IP) e ricognizione (2 o più esche diverse dallo stesso IP).
-- **Controllo periodico delle esche** (ogni 60 s): se un'esca riceve un ruolo o un gruppo, viene disattivata o cancellata, Honey-Stack genera un allarme e ripristina lo stato corretto.
+- **Controllo periodico delle esche** (ogni 60 s): ogni manomissione di un'esca genera un allarme. Se riceve un ruolo o un gruppo, Honey-Stack lo toglie; se viene disabilitata, la riattiva; se viene cancellata, la segnala e la disattiva.
 - **Integrazione con OpenStack**: servizio `deception` nel catalogo di Keystone, utente di servizio dedicato, configurazione con `oslo.config`, log con `oslo.log`, servizi systemd gestiti da DevStack.
 
 ## Installazione
@@ -100,7 +100,9 @@ Il plugin, durante `./stack.sh`:
 - attiva in Keystone le notifiche CADF su RabbitMQ (anche per gli accessi riusciti);
 - crea l'utente di servizio `honey-stack`, il progetto delle esche `infra-ops` e il servizio `deception` nel catalogo, con endpoint sulla porta 5050;
 - scrive la configurazione in `/etc/honey-stack/honey-stack.conf`;
-- avvia i servizi `devstack@honey-stack-watcher` e `devstack@honey-stack-dashboard`.
+- avvia i servizi `devstack@honey-stack-watcher` e `devstack@honey-stack-dashboard`. All'avvio il watcher attende che RabbitMQ sia raggiungibile e la dashboard che lo sia Keystone, riprovando finché non lo sono.
+
+Un nuovo `./stack.sh` ricrea Keystone da zero, quindi le esche registrate in precedenza non esistono più: il plugin sposta il database e i file esca precedenti in una cartella con la data (`/opt/stack/data/honey-stack.<data>`) e riparte vuoto.
 
 Variabili facoltative di `local.conf`: `HONEYSTACK_PORT` (predefinita `5050`) e `HONEYSTACK_DECOY_PROJECT` (predefinito `infra-ops`).
 
@@ -184,7 +186,7 @@ cd /opt/stack/honey-stack
 
 L'ambiente di prova è composto da una VM con DevStack e da una VM Kali Linux nel ruolo dell'attaccante. I due ruoli restano separati: su Kali gira solo l'attacco, così negli allarmi compare l'indirizzo di chi attacca; la dashboard, cioè la vista del difensore, è aperta sulla DevStack (`http://localhost:5050`).
 
-1. **Credenziali rubate dall'esterno.** L'attaccante trova un `clouds.yaml` esca e lo usa contro Keystone: un tentativo con password sbagliata genera un allarme ATTENZIONE, più tentativi ravvicinati l'allarme di brute force, la password giusta un allarme GRAVE.
+1. **Credenziali rubate dall'esterno.** L'attaccante trova un `clouds.yaml` esca e lo usa contro Keystone: un tentativo con password sbagliata genera un allarme ATTENZIONE, più tentativi ravvicinati l'allarme di brute force, la password giusta un allarme GRAVE. Usato con il client ufficiale `openstack`, il file restituisce all'attaccante un errore, perché l'esca non ha ruoli, mentre il difensore vede un allarme GRAVE.
 2. **Istanza compromessa.** L'attaccante entra in SSH in un'istanza creata con `honey-stack create-vm`, trova l'esca in `~/.config/openstack/clouds.yaml` e la usa: l'allarme indica l'istanza compromessa, che viene isolata in pochi secondi. L'operatore la rilascia dalla dashboard.
 
 ### Preparazione
@@ -211,6 +213,14 @@ cd honey-stack
 demo/demo.sh check
 ```
 
+Su Kali servono `curl`, `ssh` e `ping`. `demo/demo.sh check` controlla che Keystone, la dashboard e l'istanza siano raggiungibili, aggiunge se manca la rotta verso la rete `public` di DevStack (`172.24.4.0/24` attraverso la DevStack) e installa `sshpass`, usato per entrare nell'istanza CirrOS. Il client ufficiale `openstack` è facoltativo: se è presente, lo scenario 1 lo usa per il tentativo più realistico.
+
+```bash
+sudo apt update && sudo apt install -y python3-openstackclient
+```
+
+Gli script usano gli indirizzi del laboratorio in cui sono stati provati: DevStack su `192.168.206.131`, istanza `web-01` con floating IP `172.24.4.124`, utente CirrOS `cirros`. In un altro ambiente si indicano con le variabili `DEMO_DEVSTACK`, `DEMO_VM_IP`, `DEMO_VM_USER` e `DEMO_VM_PASSWORD` (sulla DevStack: `DEMO_VM`), ad esempio `DEMO_VM_IP=172.24.4.200 demo/demo.sh scenario2`.
+
 ### Esecuzione
 
 [`demo/demo.sh`](demo/demo.sh), su Kali:
@@ -222,6 +232,17 @@ demo/demo.sh all ~/Downloads/clouds.yaml         # controlli ed entrambi gli sce
 ```
 
 Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nella dashboard e si ferma tra un passo e l'altro (`demo/demo.sh --no-pause …` non si ferma). Nello scenario 2 attende che l'operatore rilasci l'istanza dalla dashboard. Indirizzi e nomi si possono cambiare con le variabili `DEMO_*` descritte in testa allo script.
+
+## Scelte di sicurezza
+
+- **Le esche non danno accesso a nulla.** Sono utenti di Keystone senza ruoli né gruppi, in un progetto dedicato (`infra-ops`), con una password casuale di 20 caratteri. Anche chi le usa con successo non ottiene risorse: ottiene solo un allarme a suo carico.
+- **Un'esca non può diventare un accesso vero.** Il controllo periodico toglie ruoli e gruppi assegnati a un'esca, per errore o da un attaccante, e ne segnala la disattivazione o la cancellazione.
+- **Gravità basata sull'esito.** Una password sbagliata può essere un tentativo a caso (ATTENZIONE); una password giusta prova che qualcuno ha letto il file esca (GRAVE).
+- **Quarantena solo quando la compromissione è certa.** Di base l'isolamento scatta solo con la password giusta, perché isolare un'istanza per errore significa interrompere un servizio; `quarantine_on_failure` permette di essere più severi. L'istanza non viene spenta né cancellata, per non perdere ciò che serve all'analisi, e il rilascio resta una decisione dell'operatore.
+- **Gruppo di quarantena davvero vuoto.** Neutron aggiunge a ogni nuovo security group le regole che permettono tutto il traffico in uscita: Honey-Stack le cancella, così l'istanza isolata non può nemmeno contattare l'esterno.
+- **Credenziali del servizio protette.** Honey-Stack usa un utente di servizio dedicato (con ruolo `admin`, necessario per gestire utenti e istanze di altri progetti). La sua password sta in `/etc/honey-stack/honey-stack.conf` con permessi `600` e il plugin la nasconde dal log di `stack.sh`.
+- **Accesso alla dashboard e alle API solo per amministratori**, verificato su Keystone a ogni login o token.
+- **Limiti noti.** La dashboard usa il server di sviluppo di Flask e i suoi form non hanno protezione CSRF: va bene per un ambiente di laboratorio come DevStack, non per la produzione.
 
 ## Struttura del repository
 
