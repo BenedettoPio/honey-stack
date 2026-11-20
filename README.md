@@ -95,7 +95,7 @@ cd /opt/stack/devstack
 ./stack.sh
 ```
 
-L'installazione è stata verificata da zero su una DevStack pulita, usando solo `devstack/local.conf.sample`.
+L'installazione è stata verificata da zero su una DevStack pulita, usando solo `devstack/local.conf.sample`, prima dell'integrazione con Horizon. I pannelli di Horizon sono stati provati su una DevStack già installata, copiando in Horizon gli stessi file `enabled` che il plugin copia durante `./stack.sh`.
 
 Il plugin, durante `./stack.sh`:
 
