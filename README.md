@@ -9,7 +9,6 @@ Se l'esca viene usata da un'istanza del cloud, Honey-Stack indica quale istanza 
 Progetto per l'esame di Piattaforme di Cloud Computing, Laurea Magistrale LM-66, Università di Salerno.
 
 ## Architettura
-
 ```mermaid
 flowchart TB
     A["Attaccante"]
@@ -19,17 +18,17 @@ flowchart TB
         N["Neutron"]
         VM["Istanza con l'esca"]
     end
-    subgraph HS["Honey-Stack"]
-        G["CLI honey-stack"]
+    subgraph HS["Honey-Stack (lato server)"]
         W["Watcher<br/>correlazione, controllo periodico, quarantena"]
         DB[("Database SQLite")]
         D["API REST"]
     end
+    G["CLI honey-stack"]
     H["Horizon<br/>Admin → Honey-Stack"]
     O["Operatore"]
-    A -->|"1 usa l'esca"| K
-    A -->|"SSH"| VM
-    VM -->|"1 usa l'esca"| K
+    A -->|"1 usa l'esca da fuori (scenario 1)"| K
+    A -.->|"entra in SSH (scenario 2)"| VM
+    VM -->|"1 usa l'esca dalla VM (scenario 2)"| K
     R -->|"3 oslo.messaging"| W
     W -->|"4 allarme"| DB
     DB --> D
