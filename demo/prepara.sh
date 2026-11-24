@@ -16,6 +16,9 @@
 # Opzione: --azzera-allarmi mette da parte gli allarmi delle prove (prima
 # salva una copia del database), cosi' la demo parte con il pannello
 # Allarmi vuoto. Le esche non vengono toccate.
+#
+# I comandi honey-stack passano dalle API REST, come Horizon: per questo
+# servono le credenziali di admin (openrc) e le API devono essere attive.
 
 set -u
 
@@ -116,19 +119,9 @@ fi
 
 if (( AZZERA )); then
     title "Allarmi"
-    db=$(awk -F' *= *' '$1 == "db_path" {print $2}' "$CONF")
-    db=${db:-/opt/stack/data/honey-stack/honeystack.db}
-    copia="$db.$(date +%Y%m%d-%H%M%S).bak"
-    cp "$db" "$copia" || die "copia del database non riuscita"
-    "$PYTHON" - "$db" <<'EOF'
-import sqlite3, sys
-db = sqlite3.connect(sys.argv[1])
-n = db.execute("DELETE FROM alerts").rowcount
-db.execute("DELETE FROM quarantine WHERE released_at IS NOT NULL")
-db.commit()
-print(f"  {n} allarmi delle prove messi da parte")
-EOF
-    ok "Copia del database prima della pulizia: $copia"
+    # strumento di amministrazione lato server, come keystone-manage
+    "$PYTHON" -m honeystack.db reset-alerts \
+        || die "pulizia degli allarmi non riuscita"
 fi
 
 title "Esche attive"

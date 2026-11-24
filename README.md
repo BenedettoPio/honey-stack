@@ -37,8 +37,9 @@ flowchart TB
     H -->|"6 allarmi, rilascio"| O
     W -->|"quarantena"| N
     N -.->|"isola"| VM
-    G -->|"crea le esche"| K
-    G -->|"create-vm"| NV
+    G -->|"comandi, con il token dell'operatore"| D
+    D -->|"crea le esche"| K
+    D -->|"create-vm"| NV
     NV -.->|"crea"| VM
 ```
 
@@ -49,12 +50,15 @@ flowchart TB
 | Controllo periodico | `honeystack/controllo.py` | verifica che le esche restino senza ruoli né gruppi, abilitate ed esistenti |
 | Quarantena | `honeystack/quarantena.py` | isola via Neutron l'istanza da cui è stata usata un'esca, con rilascio |
 | Database | `honeystack/db.py` | SQLite con esche, allarmi e quarantene |
-| Gestore | `honeystack/manager.py` | comando `honey-stack`: crea e rimuove le esche, genera i file esca, crea le istanze con l'esca (`create-vm`), elenca e rilascia le quarantene |
-| API REST | `honeystack/app.py` | API Flask per esche, allarmi e quarantene; ogni richiesta porta un token Keystone con ruolo admin |
+| Gestore delle esche | `honeystack/manager.py` | lato server, usato dalle API: crea e rimuove le esche in Keystone, genera i file esca, crea le istanze con l'esca |
+| API REST | `honeystack/app.py` | API Flask per esche, allarmi e quarantene, unico punto di accesso per i client; ogni richiesta porta un token Keystone con ruolo admin |
+| CLI | `honeystack/cli.py` | comando `honey-stack`: client delle API REST, con le credenziali dell'operatore (`openrc`) |
 | Pannelli Horizon | `honeystack_dashboard/` | gruppo **Honey-Stack** nella dashboard Admin di Horizon: pannelli Allarmi, Honeytoken e Quarantene, che leggono le API con il token dell'utente entrato in Horizon |
 | Accesso a OpenStack | `honeystack/cloud.py` | tutte le chiamate a Keystone, Nova, Glance e Neutron tramite `openstacksdk` |
 | Configurazione | `honeystack/config.py` | opzioni con `oslo.config`, log con `oslo.log` |
 | Plugin DevStack | `devstack/plugin.sh`, `devstack/settings` | installazione, configurazione e avvio con `./stack.sh`, compresa l'aggiunta dei pannelli a Horizon |
+
+Solo i due servizi lato server, il watcher e le API REST, usano il database e l'utente di servizio. I client, cioè i pannelli di Horizon e il comando `honey-stack`, passano sempre dalle API con il token dell'operatore, come fanno Horizon e il client `openstack` con le API degli altri servizi.
 
 Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di nessun servizio. Anche i pannelli si aggiungono a Horizon con il suo meccanismo dei plugin (file `enabled`), senza toccarne il codice.
 
@@ -122,16 +126,22 @@ openstack catalog list | grep -A2 deception
 
 ### Comandi
 
+Il comando `honey-stack` è un client delle API REST: usa le credenziali dell'ambiente (`source /opt/stack/devstack/openrc admin admin`) e trova l'indirizzo delle API nel catalogo di Keystone, servizio `deception`.
+
 ```bash
 honey-stack create NOME [LUOGO]     # nuova esca; LUOGO = dove verrà lasciato il file
 honey-stack create-vm NOME VM       # nuova istanza con l'esca al suo interno
+honey-stack files NOME [CARTELLA]   # scarica clouds.yaml e openrc dell'esca
 honey-stack list                    # esche attive
 honey-stack delete NOME             # elimina l'esca da Keystone (non l'istanza)
+honey-stack alerts                  # ultimi allarmi
 honey-stack quarantine-list         # istanze in quarantena
 honey-stack release VM              # rilascia un'istanza (nome, IP o ID)
 ```
 
-Con DevStack il comando si trova in `/opt/stack/data/venv/bin/honey-stack`. I file esca vengono scritti in `/opt/stack/data/honey-stack/esche/NOME/`.
+Con DevStack il comando si trova in `/opt/stack/data/venv/bin/honey-stack`. Sul server i file esca stanno in `/opt/stack/data/honey-stack/esche/NOME/`.
+
+Sulla macchina del servizio, `python -m honeystack.db` è lo strumento di amministrazione del database (come `keystone-manage` per Keystone): `alerts` stampa gli allarmi, `reset-alerts` mette da parte quelli delle prove dopo averne salvato una copia.
 
 ### Horizon
 
@@ -151,7 +161,7 @@ Sulla porta 5050. Tranne `GET /`, che descrive il servizio, richiedono un token 
 | --- | --- |
 | `GET /api/v1/alerts` | ultimi 100 allarmi, con gravità e luogo dell'esca |
 | `GET /api/v1/honeytokens` | esche attive |
-| `POST /api/v1/honeytokens` | crea un'esca: `{"name": "...", "location": "..."}` (201; 400 nome non valido; 409 utente già esistente) |
+| `POST /api/v1/honeytokens` | crea un'esca: `{"name": "...", "location": "..."}`; con `"vm": "..."` crea anche un'istanza con l'esca dentro (201; 400 nome non valido; 409 utente già esistente; 502 istanza non creata) |
 | `DELETE /api/v1/honeytokens/NOME` | elimina un'esca (204; 404 se non è un'esca attiva) |
 | `GET /api/v1/honeytokens/NOME/files/FILE` | scarica `clouds.yaml` o `openrc` di un'esca attiva |
 | `GET /api/v1/quarantines` | istanze attualmente in quarantena |
@@ -188,7 +198,7 @@ La sezione `[service_user]` contiene le credenziali dell'utente di servizio, scr
 
 ## Test
 
-I test automatici del servizio (94) usano `pytest` e non richiedono un cloud attivo: le chiamate a OpenStack, raccolte in `honeystack/cloud.py`, vengono sostituite da un oggetto simulato. Gli eventi di ingresso sono eventi CADF reali registrati da Keystone (`tests/dati/eventi_cadf.json`, estratti con `tools/estrai_eventi.py`).
+I test automatici del servizio (110) usano `pytest` e non richiedono un cloud attivo: le chiamate a OpenStack, raccolte in `honeystack/cloud.py`, vengono sostituite da un oggetto simulato. I test del comando `honey-stack` lo fanno parlare con le API vere, senza rete, così provano tutto il percorso comando → API → gestore. Gli eventi di ingresso sono eventi CADF reali registrati da Keystone (`tests/dati/eventi_cadf.json`, estratti con `tools/estrai_eventi.py`).
 
 ```bash
 cd /opt/stack/honey-stack
@@ -262,6 +272,7 @@ Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nei pann
 - **Quarantena solo quando la compromissione è certa.** Di base l'isolamento scatta solo con la password giusta, perché isolare un'istanza per errore significa interrompere un servizio; `quarantine_on_failure` permette di essere più severi. L'istanza non viene spenta né cancellata, per non perdere ciò che serve all'analisi, e il rilascio resta una decisione dell'operatore.
 - **Gruppo di quarantena davvero vuoto.** Neutron aggiunge a ogni nuovo security group le regole che permettono tutto il traffico in uscita: Honey-Stack le cancella, così l'istanza isolata non può nemmeno contattare l'esterno.
 - **Credenziali del servizio protette.** Honey-Stack usa un utente di servizio dedicato (con ruolo `admin`, necessario per gestire utenti e istanze di altri progetti). La sua password sta in `/etc/honey-stack/honey-stack.conf` con permessi `600` e il plugin la nasconde dal log di `stack.sh`.
+- **Un solo punto di accesso.** Database e utente di servizio li usano solo il watcher e le API, cioè il lato server. Horizon e il comando `honey-stack` sono client delle API e usano il token dell'operatore: ogni operazione passa dagli stessi controlli (token, ruolo admin, nomi validi).
 - **Accesso solo per amministratori.** I pannelli stanno nella dashboard Admin di Horizon, che ha già il suo login, le sue sessioni e la protezione CSRF dei form; le API verificano su Keystone, a ogni richiesta, che il token abbia il ruolo `admin`. Honey-Stack non ha più un'interfaccia web con login proprio.
 - **Nomi delle esche controllati.** Il nome di un'esca diventa un utente di Keystone e il nome di una cartella: API e pannello accettano solo lettere, cifre e `_ . -`, e i file si scaricano solo per esche attive, così una richiesta non può uscire dalla cartella delle esche.
 - **Limiti noti.** Le API usano il server di sviluppo di Flask, in HTTP: va bene per un ambiente di laboratorio come DevStack, non per la produzione, dove andrebbero messe dietro Apache con TLS come gli altri servizi.

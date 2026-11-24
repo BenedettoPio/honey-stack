@@ -1,22 +1,16 @@
-"""Honey-Stack - Gestore degli honeytoken.
+"""Honey-Stack - Gestore degli honeytoken (lato server).
 
 Crea e rimuove gli utenti esca in Keystone, li registra nel database
 e genera i file esca da lasciare dove un attaccante puo' trovarli.
-Uso:
-    honey-stack create NOME [LUOGO]
-    honey-stack create-vm NOME VM      (esca dentro una nuova VM)
-    honey-stack delete NOME
-    honey-stack list
-    honey-stack quarantine-list        (VM in quarantena)
-    honey-stack release VM             (rilascia una VM, nome o IP)
+Lo usano solo le API REST (app.py): il comando honey-stack (cli.py) e i
+pannelli di Horizon chiamano le API, non questo modulo.
 """
 import os
 import secrets
 import string
-import sys
 
 from honeystack import cloud as cloud_mod
-from honeystack import config, db, quarantena
+from honeystack import config, db
 
 DECOY_PROJECT = config.get("decoy_project")
 DECOY_DIR = config.get("decoy_dir")
@@ -42,6 +36,10 @@ export OS_USER_DOMAIN_NAME=Default
 export OS_PROJECT_DOMAIN_NAME=Default
 export OS_IDENTITY_API_VERSION=3
 """
+
+
+class ErroreVM(ValueError):
+    """La VM con l'esca non e' stata creata (errore di Nova o Neutron)."""
 
 
 def genera_password(lunghezza=20):
@@ -122,7 +120,7 @@ def create_honeytoken_vm(nome, vm, cloud=None):
             config.get("vm_floating_pool"))
     except Exception as errore:
         cloud.elimina_utente(user_id)
-        raise ValueError("VM %s non creata: %s" % (vm, errore))
+        raise ErroreVM("VM %s non creata: %s" % (vm, errore))
     indirizzi = ", ".join(ip for ip in (fisso, floating) if ip)
     luogo = "VM %s (%s) ~%s/.config/openstack/clouds.yaml" % (
         vm, indirizzi, config.get("vm_user"))
@@ -140,54 +138,3 @@ def delete_honeytoken(nome, cloud=None):
     cloud = cloud or cloud_mod.Cloud()
     cloud.elimina_utente(esca["user_id"])
     db.disable_honeytoken(esca["user_id"])
-
-
-def main(argv):
-    if len(argv) < 2:
-        print(__doc__)
-        return 1
-    cmd = argv[1]
-    try:
-        if cmd == "create" and len(argv) >= 3:
-            luogo = argv[3] if len(argv) > 3 else ""
-            cartella = create_honeytoken(argv[2], luogo)
-            print("Honeytoken creato:", argv[2])
-            print("File esca in:", cartella)
-        elif cmd == "create-vm" and len(argv) >= 4:
-            print("Creo la VM %s con l'esca %s (puo' volerci qualche "
-                  "minuto)..." % (argv[3], argv[2]))
-            dati = create_honeytoken_vm(argv[2], argv[3])
-            print("Honeytoken creato:", argv[2])
-            print("VM:", argv[3], dati["vm_id"])
-            print("IP fisso:", dati["fisso"])
-            print("Floating IP:", dati["floating"] or "nessuno")
-            print("Luogo:", dati["luogo"])
-        elif cmd == "delete" and len(argv) >= 3:
-            delete_honeytoken(argv[2])
-            print("Honeytoken eliminato:", argv[2])
-        elif cmd == "quarantine-list":
-            for q in db.list_quarantine():
-                print(q["server_name"], q["source_ip"], q["honeytoken"],
-                      q["started_at"])
-        elif cmd == "release" and len(argv) >= 3:
-            vm = quarantena.rilascia(argv[2])
-            print("VM rilasciata, gruppi originali ripristinati:", vm)
-        elif cmd == "list":
-            for h in db.list_honeytokens():
-                print(h["name"], h["user_id"], h["luogo"], h["created_at"])
-        else:
-            print(__doc__)
-            return 1
-    except ValueError as errore:
-        print("Errore:", errore)
-        return 1
-    return 0
-
-
-def cli():
-    """Punto di ingresso del comando honey-stack."""
-    sys.exit(main(sys.argv))
-
-
-if __name__ == "__main__":
-    cli()

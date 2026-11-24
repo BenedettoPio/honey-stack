@@ -143,3 +143,33 @@ def test_rilascio_per_id_non_per_nome_della_vm(client, cloud_finto):
     risposta = client.post("/api/v1/quarantines/2/release", headers=ADMIN)
     assert risposta.status_code == 404
     assert len(db.list_quarantine()) == 1
+
+
+def test_crea_honeytoken_dentro_una_vm(client, cloud_finto):
+    risposta = client.post("/api/v1/honeytokens", headers=ADMIN,
+                           json={"name": "svc_deploy", "vm": "web-01"})
+    assert risposta.status_code == 201
+    dati = risposta.get_json()
+    assert dati["name"] == "svc_deploy"
+    assert dati["vm"]["name"] == "web-01"
+    assert dati["vm"]["floating"] == "172.24.4.115"
+    assert dati["luogo"].startswith("VM web-01")
+
+
+@pytest.mark.parametrize("vm", ["", "a b", "../x"])
+def test_crea_honeytoken_con_nome_della_vm_non_valido(client, cloud_finto,
+                                                      vm):
+    risposta = client.post("/api/v1/honeytokens", headers=ADMIN,
+                           json={"name": "svc_deploy", "vm": vm})
+    assert risposta.status_code == 400
+    assert cloud_finto.chiamate == []
+
+
+def test_vm_non_creata(client, cloud_finto):
+    # errore di Nova: 502, e l'utente esca appena creato viene cancellato
+    cloud_finto.vm_rotta = True
+    risposta = client.post("/api/v1/honeytokens", headers=ADMIN,
+                           json={"name": "svc_deploy", "vm": "web-01"})
+    assert risposta.status_code == 502
+    assert "non creata" in risposta.get_json()["error"]
+    assert ("elimina_utente", "id-svc_deploy") in cloud_finto.chiamate

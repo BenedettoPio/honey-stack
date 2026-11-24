@@ -1,13 +1,18 @@
 """Honey-Stack - Database (SQLite).
 
-Conserva gli honeytoken attivi e lo storico degli allarmi.
-Uso da terminale:
+Conserva gli honeytoken attivi e lo storico degli allarmi. Lo usano solo
+i servizi lato server: il watcher e le API REST.
+Da terminale, sulla macchina del servizio, e' anche uno strumento di
+amministrazione (come keystone-manage per Keystone):
     python -m honeystack.db init
     python -m honeystack.db add USER_ID NOME PROJECT_ID [LUOGO]
     python -m honeystack.db list
     python -m honeystack.db alerts
+    python -m honeystack.db reset-alerts   (copia il DB, poi svuota gli
+                                            allarmi e le quarantene chiuse)
 """
 import os
+import shutil
 import sqlite3
 import sys
 from contextlib import closing
@@ -147,16 +152,6 @@ def active_quarantine_for_port(port_id, path=DB_PATH):
             "released_at IS NULL", (port_id,)).fetchone()
 
 
-def active_quarantine_for(vm_o_ip, path=DB_PATH):
-    """Quarantena attiva per nome della VM, IP o id della voce."""
-    with closing(connect(path)) as conn:
-        return conn.execute(
-            "SELECT * FROM quarantine WHERE released_at IS NULL AND "
-            "(server_name = ? OR source_ip = ? OR CAST(id AS TEXT) = ?) "
-            "ORDER BY id DESC", (vm_o_ip, vm_o_ip, str(vm_o_ip))
-        ).fetchone()
-
-
 def list_quarantine(only_active=True, path=DB_PATH):
     query = "SELECT * FROM quarantine"
     if only_active:
@@ -170,6 +165,21 @@ def list_alerts(limit=50, path=DB_PATH):
         return conn.execute(
             "SELECT * FROM alerts ORDER BY id DESC LIMIT ?",
             (limit,)).fetchall()
+
+
+def reset_alerts(path=DB_PATH):
+    """Mette da parte gli allarmi delle prove: prima copia il database.
+
+    Toglie gli allarmi e le quarantene gia' rilasciate; esche e
+    quarantene attive restano. Restituisce (allarmi tolti, copia).
+    """
+    copia = "%s.%s.bak" % (
+        path, datetime.now().strftime("%Y%m%d-%H%M%S"))
+    shutil.copy2(path, copia)
+    with closing(connect(path)) as conn, conn:
+        tolti = conn.execute("DELETE FROM alerts").rowcount
+        conn.execute("DELETE FROM quarantine WHERE released_at IS NOT NULL")
+    return tolti, copia
 
 
 def main(argv):
@@ -191,6 +201,10 @@ def main(argv):
         for a in list_alerts():
             print(a["id"], a["event_time"], a["name"], a["outcome"],
                   a["source_ip"], a["agent"])
+    elif cmd == "reset-alerts":
+        tolti, copia = reset_alerts()
+        print("%d allarmi delle prove messi da parte" % tolti)
+        print("Copia del database prima della pulizia:", copia)
     else:
         print(__doc__)
         return 1

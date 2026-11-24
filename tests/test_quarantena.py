@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from honeystack import cloud, config, db, manager, quarantena, watcher
+from honeystack import cloud, config, db, quarantena, watcher
 
 FIP = "172.24.4.124"
 
@@ -107,32 +107,33 @@ def test_errore_di_neutron_non_lascia_voci_false(eventi, cloud_con_vm,
 
 def test_rilascio(eventi, cloud_con_vm, quarantena_attiva):
     attacco_dalla_vm(eventi)
-    assert quarantena.rilascia("web-01", cloud_con_vm) == "web-01"
+    [voce] = db.list_quarantine()
+    assert quarantena.rilascia_voce(voce, cloud_con_vm) == "web-01"
     assert cloud_con_vm.gruppi_porta["porta-1"] == ["sg-esca"]
     assert db.list_quarantine() == []
     # lo storico resta
     assert db.list_quarantine(only_active=False)[0]["released_at"]
 
 
-def test_rilascio_per_ip(eventi, cloud_con_vm, quarantena_attiva):
-    attacco_dalla_vm(eventi)
-    quarantena.rilascia(FIP, cloud_con_vm)
-    assert db.list_quarantine() == []
-
-
-def test_rilascio_di_una_vm_non_in_quarantena(cloud_finto):
-    with pytest.raises(ValueError):
-        quarantena.rilascia("web-02", cloud_finto)
-
-
 def test_comandi_quarantine_list_e_release(eventi, cloud_con_vm,
-                                          quarantena_attiva, capsys):
+                                          quarantena_attiva, cli_su_api,
+                                          capsys):
     attacco_dalla_vm(eventi)
-    assert manager.main(["honey-stack", "quarantine-list"]) == 0
+    assert cli_su_api.main(["honey-stack", "quarantine-list"]) == 0
     assert "web-01 %s svc_deploy" % FIP in capsys.readouterr().out
-    assert manager.main(["honey-stack", "release", "web-01"]) == 0
+    assert cli_su_api.main(["honey-stack", "release", "web-01"]) == 0
     assert "VM rilasciata" in capsys.readouterr().out
-    assert manager.main(["honey-stack", "release", "web-01"]) == 1
+    assert cloud_con_vm.gruppi_porta["porta-1"] == ["sg-esca"]
+    # gia' rilasciata: errore
+    assert cli_su_api.main(["honey-stack", "release", "web-01"]) == 1
+    assert "non e' in quarantena" in capsys.readouterr().out
+
+
+def test_comando_release_per_ip(eventi, cloud_con_vm, quarantena_attiva,
+                                cli_su_api):
+    attacco_dalla_vm(eventi)
+    assert cli_su_api.main(["honey-stack", "release", FIP]) == 0
+    assert db.list_quarantine() == []
 
 
 class _Oggetto:

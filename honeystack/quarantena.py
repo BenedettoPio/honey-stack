@@ -69,15 +69,8 @@ def isola(ip, esca, cloud=None):
         return None
 
 
-def rilascia(vm_o_ip, cloud=None):
-    """Rimette i gruppi originali alla VM in quarantena (nome o IP)."""
-    voce = db.active_quarantine_for(vm_o_ip)
-    if voce is None:
-        raise ValueError(vm_o_ip + " non e' in quarantena")
-    return rilascia_voce(voce, cloud)
-
-
 def rilascia_voce(voce, cloud=None):
+    """Rimette alla VM in quarantena i gruppi originali (API di rilascio)."""
     cloud = cloud or cloud_mod.Cloud()
     cloud.imposta_gruppi(voce["port_id"], json.loads(voce["original_groups"]))
     db.release_quarantine(voce["id"])

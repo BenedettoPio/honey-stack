@@ -40,3 +40,16 @@ def test_allarmi_dal_piu_recente_e_limite():
                       agent="curl", event_time="t%d" % i)
     allarmi = db.list_alerts(limit=3)
     assert [a["event_id"] for a in allarmi] == ["e4", "e3", "e2"]
+
+
+def test_reset_alerts_salva_una_copia(tmp_path):
+    path = str(tmp_path / "prova.db")
+    db.add_honeytoken("u1", "svc_backup", "p1", path=path)
+    db.save_alert("e1", "u1", "svc_backup", "failure", "1.2.3.4", "curl",
+                  "2026-11-20T12:00:00", path=path)
+    tolti, copia = db.reset_alerts(path=path)
+    assert tolti == 1
+    assert db.list_alerts(path=path) == []
+    # le esche restano; la copia ha ancora l'allarme
+    assert db.list_honeytokens(path=path)[0]["name"] == "svc_backup"
+    assert len(db.list_alerts(path=copia)) == 1

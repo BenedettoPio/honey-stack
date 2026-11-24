@@ -57,12 +57,22 @@ def test_nome_esca_gia_usato(cloud_finto):
     assert not any(c[0] == "crea_vm" for c in cloud_finto.chiamate)
 
 
-def test_comando_create_vm(cloud_finto, capsys):
-    assert manager.main(["honey-stack", "create-vm", "svc_deploy",
-                         "web-01"]) == 0
+def test_comando_create_vm(cli_su_api, cloud_finto, capsys):
+    # il comando chiede la VM alle API, che usano il gestore lato server
+    assert cli_su_api.main(["honey-stack", "create-vm", "svc_deploy",
+                            "web-01"]) == 0
     uscita = capsys.readouterr().out
     assert "Floating IP: 172.24.4.115" in uscita
     assert "VM web-01" in uscita
+    assert any(c[0] == "crea_vm" for c in cloud_finto.chiamate)
+
+
+def test_comando_create_vm_se_la_vm_non_parte(cli_su_api, cloud_finto,
+                                              capsys):
+    cloud_finto.vm_rotta = True
+    assert cli_su_api.main(["honey-stack", "create-vm", "svc_deploy",
+                            "web-01"]) == 1
+    assert "VM web-01 non creata" in capsys.readouterr().out
 
 
 class _Oggetto:

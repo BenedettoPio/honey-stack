@@ -155,3 +155,24 @@ def eventi():
     """Eventi CADF identity.authenticate catturati da Keystone."""
     with open(DATI / "eventi_cadf.json") as f:
         return json.load(f)
+
+
+@pytest.fixture
+def cli_su_api(cloud_finto, monkeypatch):
+    """Il comando honey-stack parla con le API vere (Flask), senza rete.
+
+    Le richieste del client arrivano all'app Flask con il token di un
+    admin: si prova tutto il percorso comando -> API -> gestore.
+    """
+    from honeystack import app as app_mod
+    from honeystack import cli
+    app_mod.app.config["TESTING"] = True
+    client = app_mod.app.test_client()
+
+    def richiesta(metodo, percorso, dati=None, attesa=None):
+        risposta = client.open(percorso, method=metodo, json=dati,
+                               headers={"X-Auth-Token": "token-admin"})
+        return risposta.status_code, risposta.data
+
+    monkeypatch.setattr(cli, "richiesta", richiesta)
+    return cli

@@ -1,9 +1,11 @@
 """Honey-Stack - API REST.
 
-Espone esche, allarmi e quarantene al pannello di Horizon (e a chiunque
-abbia un token Keystone con ruolo admin). Ogni richiesta deve portare
-il token nell'intestazione X-Auth-Token: e' quello dell'utente entrato
-in Horizon, quindi non serve un secondo login.
+Unico punto di accesso a esche, allarmi e quarantene per i client: i
+pannelli di Horizon e il comando honey-stack (cli.py). Solo il lato
+server (queste API e il watcher) usa il database e l'utente di servizio.
+Ogni richiesta deve portare nell'intestazione X-Auth-Token un token
+Keystone con ruolo admin: quello dell'utente entrato in Horizon, o
+quello dell'operatore che usa il comando (source openrc).
 Avvio: honey-stack-dashboard (servizio devstack@honey-stack-dashboard)
 """
 import functools
@@ -76,21 +78,38 @@ def api_honeytokens():
     return jsonify([dict(h) for h in db.list_honeytokens()])
 
 
+def nome_valido(nome):
+    return bool(NOME_VALIDO.match(nome)) and not nome.startswith(".")
+
+
 @app.route("/api/v1/honeytokens", methods=["POST"])
 @richiede_token
 def api_crea_honeytoken():
+    """Crea un'esca; con "vm" crea anche una nuova VM che la contiene."""
     dati = request.get_json(silent=True) or {}
     nome = str(dati.get("name", "")).strip()
     luogo = str(dati.get("location", "")).strip()
-    if not NOME_VALIDO.match(nome) or nome.startswith("."):
+    vm = str(dati.get("vm", "")).strip()
+    if not nome_valido(nome):
         return errore(400, "Nome dell'esca mancante o non valido: lettere, "
                            "cifre, _ . - (massimo 64)")
+    if "vm" in dati and not nome_valido(vm):
+        return errore(400, "Nome della VM non valido: lettere, cifre, "
+                           "_ . - (massimo 64)")
     try:
-        manager.create_honeytoken(nome, luogo)
+        if vm:
+            creata = manager.create_honeytoken_vm(nome, vm)
+        else:
+            manager.create_honeytoken(nome, luogo)
+    except manager.ErroreVM as e:
+        return errore(502, str(e))
     except ValueError as e:
         return errore(409, str(e))
     LOG.info("Honeytoken creato dalle API: %s", nome)
-    return jsonify(dict(esca_attiva(nome))), 201
+    risposta = dict(esca_attiva(nome))
+    if vm:
+        risposta["vm"] = dict(creata, name=vm)
+    return jsonify(risposta), 201
 
 
 @app.route("/api/v1/honeytokens/<nome>", methods=["DELETE"])
