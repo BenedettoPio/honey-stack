@@ -93,21 +93,10 @@ Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di ne
 | --- | --- |
 | Keystone | crea e rimuove gli utenti esca nel progetto `infra-ops`; pubblica gli eventi CADF di ogni accesso; verifica che il token di chi chiama le API abbia il ruolo `admin`; registra le API nel catalogo come servizio `deception` |
 | RabbitMQ (con `oslo.messaging`) | porta gli eventi di Keystone al watcher, sul topic delle notifiche |
-| Neutron | trova l'istanza dall'IP sorgente (floating IP o IP fisso della porta); crea il gruppo di quarantena e lo applica alla porta; per `create-vm` crea un gruppo con ping e SSH |
+| Neutron | trova l'istanza dall'IP sorgente (floating IP o IP fisso della porta); crea il gruppo di quarantena e lo applica alla porta, e al rilascio rimette i gruppi originali; per `create-vm` crea un gruppo con ping e SSH |
 | Nova | per `create-vm` avvia l'istanza con l'esca, scritta all'avvio tramite user-data; per la quarantena ricava il nome dell'istanza |
 | Glance | per `create-vm` fornisce l'immagine CirrOS dell'istanza |
 | Horizon | ospita i pannelli Allarmi, Honeytoken e Quarantene nella dashboard Admin |
- 
-I servizi di OpenStack usati, e per cosa:
- 
-| Servizio | Cosa ci fa Honey-Stack |
-| --- | --- |
-| Keystone | crea e cancella gli utenti esca; pubblica gli eventi CADF di ogni accesso; verifica il token dell'operatore a ogni richiesta alle API; contiene nel catalogo il servizio `deception`, da cui la CLI e Horizon trovano le API |
-| RabbitMQ | trasporta gli eventi di Keystone fino al watcher, tramite `oslo.messaging` |
-| Nova | crea l'istanza con l'esca (`create-vm`) e dà il nome dell'istanza compromessa |
-| Glance | fornisce l'immagine CirrOS per l'istanza con l'esca |
-| Neutron | per l'istanza con l'esca crea il security group che apre ping e SSH; in caso di attacco trova la porta dell'istanza a partire dall'IP dell'accesso, crea il gruppo di quarantena e sostituisce i security group della porta (e li ripristina al rilascio) |
-| Horizon | ospita i tre pannelli Allarmi, Honeytoken e Quarantene nella dashboard Admin |
  
 ## Come funziona
  
