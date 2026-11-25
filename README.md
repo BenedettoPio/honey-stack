@@ -73,7 +73,7 @@ flowchart TB
 | Configurazione | `honeystack/config.py` | opzioni con `oslo.config`, log con `oslo.log` |
 | Plugin DevStack | `devstack/plugin.sh`, `devstack/settings` | installazione, configurazione e avvio con `./stack.sh`, compresa l'aggiunta dei pannelli a Horizon |
  
-Solo i due servizi lato server, il watcher e le API REST, usano il database e l'utente di servizio. I client, cioè i pannelli di Horizon e il comando `honey-stack`, passano sempre dalle API con il token dell'operatore, come fanno Horizon e il client `openstack` con le API degli altri servizi.
+Solo i due servizi lato server, il watcher e le API REST, usano il database e l'utente di servizio. I client, cioè i pannelli di Horizon e il comando `honey-stack`, passano sempre dalle API con il token dell'operatore, come fanno Horizon e il client `openstack` con le API degli altri servizi. Così ogni operazione, da Horizon o da terminale, passa dagli stessi controlli (token, ruolo admin, nomi validi), le credenziali dell'utente di servizio stanno in un solo posto e il database si può cambiare senza toccare i client.
  
 Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di nessun servizio. Anche i pannelli si aggiungono a Horizon con il suo meccanismo dei plugin (file `enabled`), senza toccarne il codice.
  
@@ -81,7 +81,7 @@ Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di ne
  
 1. **Creazione dell'esca.** L'amministratore crea un honeytoken da Horizon (Admin → Honey-Stack → Honeytoken) o con `honey-stack create`. Honey-Stack crea in Keystone un utente nel progetto isolato `infra-ops`, senza ruoli e con una password casuale, e genera i file esca.
 2. **L'esca viene lasciata in giro**: su un PC, in un repository, in un backup, oppure dentro un'istanza del cloud con `honey-stack create-vm`.
-3. **L'attaccante la usa.** Per ogni tentativo di accesso Keystone pubblica su RabbitMQ un evento in formato CADF (Cloud Auditing Data Federation, lo standard di audit adottato da OpenStack), con utente, esito, IP e strumento.
+3. **L'attaccante la usa.** Per ogni tentativo di accesso Keystone pubblica su RabbitMQ un evento in formato CADF (Cloud Auditing Data Federation, lo standard di audit adottato da OpenStack), con utente, esito, IP e strumento. Si usano queste notifiche di audit, e non i log di testo di Keystone, perché CADF è uno standard (DMTF) che arriva come JSON strutturato, con IP, esito e strumento in un solo messaggio e in tempo reale; il formato dei log invece cambia tra versioni e non sempre contiene questi dati.
 4. **Il watcher la riconosce** e salva un allarme: **ATTENZIONE** se la password era sbagliata, **GRAVE** se era giusta, cioè se chi la usa ha letto davvero il file esca.
 5. **Correlazione e risposta.** Gli allarmi dallo stesso IP vengono correlati. Se l'accesso riuscito parte da un'istanza del cloud, l'istanza viene messa in quarantena.
 6. **L'operatore** vede tutto in Horizon, nei pannelli Admin → Honey-Stack, e decide se rilasciare l'istanza.
@@ -90,9 +90,9 @@ Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di ne
  
 - **Honeytoken in Keystone**: utenti esca senza ruoli in un progetto isolato, con i file `clouds.yaml` e `openrc` da scaricare.
 - **Allarmi in tempo reale** con gravità, IP sorgente, orario, esito e strumento (user agent).
-- **Esca dentro un'istanza**: `honey-stack create-vm` crea un'istanza Nova e, tramite uno script di avvio (user-data), scrive l'esca in `~/.config/openstack/clouds.yaml`. L'allarme indica quale istanza è stata compromessa.
+- **Esca dentro un'istanza**: `honey-stack create-vm` crea un'istanza Nova e, tramite uno script di avvio (user-data), scrive l'esca in `~/.config/openstack/clouds.yaml`: è il primo percorso in cui il client `openstack` e openstacksdk cercano le credenziali, quindi è dove un attaccante entrato nella macchina guarda per primo. L'allarme indica quale istanza è stata compromessa.
 - **Quarantena automatica**: se un'esca viene usata con successo da un'istanza, i suoi security group sono sostituiti da un gruppo senza regole, che blocca tutto il traffico (anche le connessioni già aperte). L'istanza resta accesa per l'analisi; il rilascio ripristina i gruppi originali.
-- **Correlazione degli attacchi**: brute force (5 password sbagliate in 5 minuti dallo stesso IP) e ricognizione (2 o più esche diverse dallo stesso IP).
+- **Correlazione degli attacchi**: brute force (5 password sbagliate in 5 minuti dallo stesso IP) e ricognizione (2 o più esche diverse dallo stesso IP). La soglia del brute force e la finestra di 5 minuti sono valori predefiniti, configurabili (vedi Configurazione).
 - **Controllo periodico delle esche** (ogni 60 s): ogni manomissione di un'esca genera un allarme. Se riceve un ruolo o un gruppo, Honey-Stack lo toglie; se viene disabilitata, la riattiva; se viene cancellata, la segnala e la disattiva.
 - **Integrazione con OpenStack**: pannelli nella dashboard Admin di Horizon, servizio `deception` nel catalogo di Keystone, utente di servizio dedicato, configurazione con `oslo.config`, log con `oslo.log`, servizi systemd gestiti da DevStack.
  
@@ -183,6 +183,8 @@ In Horizon (`http://<host>/dashboard`), entrando con un utente con ruolo `admin`
 I pannelli compaiono solo se il servizio `deception` è nel catalogo di Keystone. Non hanno un login proprio: chiamano le API REST con il token dell'utente già entrato in Horizon, e Honey-Stack lo verifica su Keystone.
  
 ### API REST
+ 
+Le API sono un servizio separato da Horizon perché i dati li produce il watcher, che non fa parte di Horizon, e perché le stesse operazioni si possono usare anche da altri strumenti, per esempio uno script, un SIEM o `curl`.
  
 Sulla porta 5050. Tranne `GET /`, che descrive il servizio, richiedono un token Keystone di un utente con ruolo `admin` nell'intestazione `X-Auth-Token`.
  
@@ -318,7 +320,7 @@ Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nei pann
 - **Un solo punto di accesso.** Database e utente di servizio li usano solo il watcher e le API, cioè il lato server. Horizon e il comando `honey-stack` sono client delle API e usano il token dell'operatore: ogni operazione passa dagli stessi controlli (token, ruolo admin, nomi validi).
 - **Accesso solo per amministratori.** I pannelli stanno nella dashboard Admin di Horizon, che ha già il suo login, le sue sessioni e la protezione CSRF dei form; le API verificano su Keystone, a ogni richiesta, che il token abbia il ruolo `admin`. Honey-Stack non ha più un'interfaccia web con login proprio.
 - **Nomi delle esche controllati.** Il nome di un'esca diventa un utente di Keystone e il nome di una cartella: API e pannello accettano solo lettere, cifre e `_ . -`, e i file si scaricano solo per esche attive, così una richiesta non può uscire dalla cartella delle esche.
-- **Limiti noti.** Le API usano il server di sviluppo di Flask, in HTTP: va bene per un ambiente di laboratorio come DevStack, non per la produzione, dove andrebbero messe dietro Apache con TLS come gli altri servizi.
+- **Limiti noti.** Le API usano il server di sviluppo di Flask, in HTTP: va bene per un ambiente di laboratorio come DevStack, non per la produzione, dove andrebbero messe dietro Apache con TLS come gli altri servizi. Il database è SQLite, un file senza server da installare, adatto a un servizio su un solo nodo come DevStack: con più watcher servirebbe un database condiviso. La correlazione si può aggirare cambiando IP o distribuendo i tentativi oltre la finestra di 5 minuti, anche se ogni singolo tentativo resta comunque un allarme.
  
 ## Struttura del repository
  
