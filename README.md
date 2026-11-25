@@ -8,6 +8,16 @@ Se l'esca viene usata da un'istanza del cloud, Honey-Stack indica quale istanza 
  
 Il problema da cui nasce: in OpenStack chi ruba una password valida, per esempio da un `clouds.yaml` dimenticato in un repository, in un backup o dentro una VM, entra come un utente qualsiasi. Keystone controlla solo che la password sia giusta e non ha modo di distinguere il vero proprietario da chi l'ha sottratta. Un'esca invece non la usa nessuno in modo legittimo: chi la usa si rivela da solo, già al primo accesso.
  
+**Rispetto a OpenStack da solo.** I mattoni ci sono già (Keystone, le notifiche CADF, Neutron), ma nessuno li usa per riconoscere un furto di credenziali. Honey-Stack aggiunge la parte mancante:
+ 
+| Situazione | OpenStack da solo | Con Honey-Stack |
+| --- | --- | --- |
+| Qualcuno entra con credenziali rubate | Keystone accetta l'accesso come uno qualsiasi e non avvisa nessuno | ogni accesso con un'esca diventa un allarme in tempo reale, con IP, orario, esito e strumento |
+| Password giusta o sbagliata | nessuna differenza per chi controlla | ATTENZIONE con password sbagliata, GRAVE con password giusta |
+| Tentativi ripetuti dallo stesso IP | restano eventi separati | la correlazione li riconosce come brute force o ricognizione |
+| L'accesso parte da un'istanza del cloud | l'istanza resta in rete finché qualcuno non se ne accorge | con la password giusta l'istanza viene isolata da Neutron in automatico; il rilascio lo decide l'operatore |
+| Un utente esca riceve un ruolo o viene disattivato | la modifica passa inosservata | il controllo periodico la segnala e la annulla entro 60 secondi |
+ 
 Progetto per l'esame di Piattaforme di Cloud Computing, Laurea Magistrale LM-66, Università di Salerno.
  
 ## Indice
@@ -76,6 +86,28 @@ flowchart TB
 Solo i due servizi lato server, il watcher e le API REST, usano il database e l'utente di servizio. I client, cioè i pannelli di Horizon e il comando `honey-stack`, passano sempre dalle API con il token dell'operatore, come fanno Horizon e il client `openstack` con le API degli altri servizi. Così ogni operazione, da Horizon o da terminale, passa dagli stessi controlli (token, ruolo admin, nomi validi), le credenziali dell'utente di servizio stanno in un solo posto e il database si può cambiare senza toccare i client.
  
 Honey-Stack usa solo le API pubbliche di OpenStack: non modifica il codice di nessun servizio. Anche i pannelli si aggiungono a Horizon con il suo meccanismo dei plugin (file `enabled`), senza toccarne il codice.
+ 
+**Servizi di OpenStack usati.** Ogni servizio ha un compito preciso, e tutte le chiamate passano da `honeystack/cloud.py`:
+ 
+| Servizio | Cosa ci fa Honey-Stack |
+| --- | --- |
+| Keystone | crea e rimuove gli utenti esca nel progetto `infra-ops`; pubblica gli eventi CADF di ogni accesso; verifica che il token di chi chiama le API abbia il ruolo `admin`; registra le API nel catalogo come servizio `deception` |
+| RabbitMQ (con `oslo.messaging`) | porta gli eventi di Keystone al watcher, sul topic delle notifiche |
+| Neutron | trova l'istanza dall'IP sorgente (floating IP o IP fisso della porta); crea il gruppo di quarantena e lo applica alla porta; per `create-vm` crea un gruppo con ping e SSH |
+| Nova | per `create-vm` avvia l'istanza con l'esca, scritta all'avvio tramite user-data; per la quarantena ricava il nome dell'istanza |
+| Glance | per `create-vm` fornisce l'immagine CirrOS dell'istanza |
+| Horizon | ospita i pannelli Allarmi, Honeytoken e Quarantene nella dashboard Admin |
+ 
+I servizi di OpenStack usati, e per cosa:
+ 
+| Servizio | Cosa ci fa Honey-Stack |
+| --- | --- |
+| Keystone | crea e cancella gli utenti esca; pubblica gli eventi CADF di ogni accesso; verifica il token dell'operatore a ogni richiesta alle API; contiene nel catalogo il servizio `deception`, da cui la CLI e Horizon trovano le API |
+| RabbitMQ | trasporta gli eventi di Keystone fino al watcher, tramite `oslo.messaging` |
+| Nova | crea l'istanza con l'esca (`create-vm`) e dà il nome dell'istanza compromessa |
+| Glance | fornisce l'immagine CirrOS per l'istanza con l'esca |
+| Neutron | per l'istanza con l'esca crea il security group che apre ping e SSH; in caso di attacco trova la porta dell'istanza a partire dall'IP dell'accesso, crea il gruppo di quarantena e sostituisce i security group della porta (e li ripristina al rilascio) |
+| Horizon | ospita i tre pannelli Allarmi, Honeytoken e Quarantene nella dashboard Admin |
  
 ## Come funziona
  
@@ -320,7 +352,7 @@ Lo script stampa ogni comando prima di eseguirlo, indica cosa osservare nei pann
 - **Un solo punto di accesso.** Database e utente di servizio li usano solo il watcher e le API, cioè il lato server. Horizon e il comando `honey-stack` sono client delle API e usano il token dell'operatore: ogni operazione passa dagli stessi controlli (token, ruolo admin, nomi validi).
 - **Accesso solo per amministratori.** I pannelli stanno nella dashboard Admin di Horizon, che ha già il suo login, le sue sessioni e la protezione CSRF dei form; le API verificano su Keystone, a ogni richiesta, che il token abbia il ruolo `admin`. Honey-Stack non ha più un'interfaccia web con login proprio.
 - **Nomi delle esche controllati.** Il nome di un'esca diventa un utente di Keystone e il nome di una cartella: API e pannello accettano solo lettere, cifre e `_ . -`, e i file si scaricano solo per esche attive, così una richiesta non può uscire dalla cartella delle esche.
-- **Limiti noti.** Le API usano il server di sviluppo di Flask, in HTTP: va bene per un ambiente di laboratorio come DevStack, non per la produzione, dove andrebbero messe dietro Apache con TLS come gli altri servizi. Il database è SQLite, un file senza server da installare, adatto a un servizio su un solo nodo come DevStack: con più watcher servirebbe un database condiviso. La correlazione si può aggirare cambiando IP o distribuendo i tentativi oltre la finestra di 5 minuti, anche se ogni singolo tentativo resta comunque un allarme.
+- **Limiti noti.** Le API usano il server di sviluppo di Flask, in HTTP: va bene per un ambiente di laboratorio come DevStack, non per la produzione, dove andrebbero messe dietro Apache con TLS come gli altri servizi. Il database è SQLite, un file senza server da installare, adatto a un servizio su un solo nodo come DevStack: con più watcher servirebbe un database condiviso. Watcher e API scrivono nello stesso file: SQLite accetta una scrittura alla volta e mette in coda le altre (il modulo `sqlite3` di Python aspetta fino a 5 secondi prima di dare errore), il che basta per il carico di Honey-Stack, cioè pochi allarmi e poche operazioni dell'operatore. La correlazione si può aggirare cambiando IP o distribuendo i tentativi oltre la finestra di 5 minuti, anche se ogni singolo tentativo resta comunque un allarme.
  
 ## Struttura del repository
  
@@ -348,4 +380,5 @@ setup.cfg, setup.py    pacchetto Python e comandi honey-stack, honey-stack-watch
 ## Licenza
  
 Apache License 2.0, vedi [`LICENSE`](LICENSE).
+ 
  
