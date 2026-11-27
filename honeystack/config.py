@@ -1,5 +1,5 @@
 """Honey-Stack - Configurazione e log.
-
+ 
 Legge /etc/honey-stack/honey-stack.conf con oslo.config (percorso
 diverso con la variabile HONEYSTACK_CONF) e prepara i log con oslo.log,
 come gli altri servizi di OpenStack. Senza la sezione [service_user]
@@ -9,14 +9,25 @@ import os
 import socket
 import time
 from urllib.parse import urlsplit
-
+ 
 import openstack
 from oslo_config import cfg
 from oslo_log import log as logging
-
+ 
+# ==================================================================
+# Dove si trova il file di configurazione
+# ==================================================================
+ 
+# Di base /etc/honey-stack/honey-stack.conf; la variabile HONEYSTACK_CONF
+# lo cambia (la usano i test)
 CONF_PATH = os.environ.get("HONEYSTACK_CONF",
                            "/etc/honey-stack/honey-stack.conf")
-
+ 
+# ==================================================================
+# Opzioni della sezione [DEFAULT]
+# ==================================================================
+ 
+# Percorsi, porta delle API, controllo, correlazione, VM esca e quarantena
 OPZIONI = [
     cfg.StrOpt("db_path",
                default="/opt/stack/data/honey-stack/honeystack.db",
@@ -62,7 +73,13 @@ OPZIONI = [
                help="Security group senza regole usato per isolare "
                     "le VM, creato se manca."),
 ]
-
+ 
+# ==================================================================
+# Opzioni della sezione [service_user]
+# ==================================================================
+ 
+# Credenziali dell'utente di servizio; secret=True nasconde la password
+# nei log
 OPZIONI_UTENTE = [
     cfg.StrOpt("auth_url", help="Indirizzo di Keystone."),
     cfg.StrOpt("username", help="Utente di servizio di Honey-Stack."),
@@ -75,43 +92,54 @@ OPZIONI_UTENTE = [
     cfg.StrOpt("project_domain_name", default="Default",
                help="Dominio del progetto dell'utente di servizio."),
 ]
-
+ 
+# ==================================================================
+# Caricamento (una volta sola, quando il modulo viene importato)
+# ==================================================================
+ 
+# Registra le opzioni e quelle di oslo.log, poi legge il file se esiste
 CONF = cfg.ConfigOpts()
 CONF.register_opts(OPZIONI)
 CONF.register_opts(OPZIONI_UTENTE, group="service_user")
 logging.register_options(CONF)
 CONF([], project="honey-stack",
      default_config_files=[CONF_PATH] if os.path.exists(CONF_PATH) else [])
-
+ 
 LOG = logging.getLogger(__name__)
-
-
+ 
+ 
+# ==================================================================
+# Funzioni usate dagli altri moduli
+# ==================================================================
+ 
+ 
 def list_opts():
     """Opzioni di Honey-Stack, per oslo-config-generator."""
     return [("DEFAULT", OPZIONI), ("service_user", OPZIONI_UTENTE)]
-
-
+ 
+ 
 def setup_log():
     """Attiva i log nel formato di OpenStack (watcher e API)."""
     logging.setup(CONF, "honey-stack")
-
-
+ 
+ 
 def get(chiave):
     """Valore di una voce di [DEFAULT]."""
     return CONF[chiave]
-
-
+ 
+ 
 def ha_utente_di_servizio():
+    """True se la configurazione ha la sezione [service_user]."""
     return CONF.service_user.username is not None
-
-
+ 
+ 
 def auth_url():
     """Indirizzo di Keystone."""
     if ha_utente_di_servizio():
         return CONF.service_user.auth_url
     return os.environ.get("OS_AUTH_URL", "http://127.0.0.1/identity")
-
-
+ 
+ 
 def connessione():
     """Connessione a OpenStack con l'utente di servizio di Honey-Stack."""
     if not ha_utente_di_servizio():
@@ -122,8 +150,8 @@ def connessione():
         project_name=s.project_name, user_domain_name=s.user_domain_name,
         project_domain_name=s.project_domain_name,
         load_yaml_config=False, load_envvars=False)
-
-
+ 
+ 
 def attendi(url, nome, porta_predefinita=80, intervallo=5):
     """Aspetta che il servizio all'indirizzo url accetti connessioni."""
     parti = urlsplit(url)
@@ -136,3 +164,4 @@ def attendi(url, nome, porta_predefinita=80, intervallo=5):
             LOG.warning("%s non raggiungibile (%s:%s), nuovo tentativo "
                         "tra %s s", nome, parti.hostname, porta, intervallo)
             time.sleep(intervallo)
+ 

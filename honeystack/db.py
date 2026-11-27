@@ -1,5 +1,5 @@
 """Honey-Stack - Database (SQLite).
-
+ 
 Conserva gli honeytoken attivi e lo storico degli allarmi. Lo usano solo
 i servizi lato server: il watcher e le API REST.
 Da terminale, sulla macchina del servizio, e' anche uno strumento di
@@ -17,11 +17,15 @@ import sqlite3
 import sys
 from contextlib import closing
 from datetime import datetime, timezone
-
+ 
 from honeystack import config
-
+ 
+# ==================================================================
+# Percorso del file e schema delle tre tabelle
+# ==================================================================
+ 
 DB_PATH = config.get("db_path")
-
+ 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS honeytokens (
     user_id    TEXT PRIMARY KEY,
@@ -54,12 +58,18 @@ CREATE TABLE IF NOT EXISTS quarantine (
     released_at     TEXT
 );
 """
-
-
+ 
+ 
+# ==================================================================
+# Connessione
+# ==================================================================
+ 
+ 
 def _now():
+    """Data e ora attuali in UTC, nel formato ISO usato nel database."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
+ 
+ 
 def connect(path=DB_PATH):
     """Apre il database e crea le tabelle se non esistono."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -67,39 +77,53 @@ def connect(path=DB_PATH):
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     return conn
-
-
+ 
+ 
+# ==================================================================
+# Honeytoken (usati da manager, watcher, controllo e API)
+# ==================================================================
+ 
+ 
 def add_honeytoken(user_id, name, project_id, luogo="", path=DB_PATH):
+    """Registra un'esca attiva (la sostituisce se c'e' gia')."""
     with closing(connect(path)) as conn, conn:
         conn.execute(
             "INSERT OR REPLACE INTO honeytokens "
             "(user_id, name, project_id, luogo, created_at, active) "
             "VALUES (?, ?, ?, ?, ?, 1)",
             (user_id, name, project_id, luogo, _now()))
-
-
+ 
+ 
 def disable_honeytoken(user_id, path=DB_PATH):
+    """Segna l'esca come non attiva (resta nello storico)."""
     with closing(connect(path)) as conn, conn:
         conn.execute("UPDATE honeytokens SET active = 0 WHERE user_id = ?",
                      (user_id,))
-
-
+ 
+ 
 def get_active_honeytoken(user_id, path=DB_PATH):
     """Restituisce l'honeytoken attivo con quell'ID utente, o None."""
     with closing(connect(path)) as conn:
         return conn.execute(
             "SELECT * FROM honeytokens WHERE user_id = ? AND active = 1",
             (user_id,)).fetchone()
-
-
+ 
+ 
 def list_honeytokens(only_active=True, path=DB_PATH):
+    """Esche attive (o tutte), dalla piu' vecchia."""
     query = "SELECT * FROM honeytokens"
     if only_active:
         query += " WHERE active = 1"
     with closing(connect(path)) as conn:
         return conn.execute(query + " ORDER BY created_at").fetchall()
-
-
+ 
+ 
+# ==================================================================
+# Allarmi (usati da watcher, correlazione, controllo,
+# quarantena e API)
+# ==================================================================
+ 
+ 
 def save_alert(event_id, user_id, name, outcome, source_ip, agent,
                event_time, path=DB_PATH):
     """Salva un allarme; restituisce False se era gia' stato salvato."""
@@ -111,16 +135,29 @@ def save_alert(event_id, user_id, name, outcome, source_ip, agent,
             (event_id, user_id, name, outcome, source_ip, agent,
              event_time, _now()))
         return cur.rowcount == 1
-
-
+ 
+ 
 def alerts_from_ip_since(source_ip, since, path=DB_PATH):
     """Allarmi da un IP ricevuti a partire da since (ISO, UTC)."""
     with closing(connect(path)) as conn:
         return conn.execute(
             "SELECT * FROM alerts WHERE source_ip = ? AND received_at >= ? "
             "ORDER BY id", (source_ip, since)).fetchall()
-
-
+ 
+ 
+def list_alerts(limit=50, path=DB_PATH):
+    """Ultimi allarmi, dal piu' recente."""
+    with closing(connect(path)) as conn:
+        return conn.execute(
+            "SELECT * FROM alerts ORDER BY id DESC LIMIT ?",
+            (limit,)).fetchall()
+ 
+ 
+# ==================================================================
+# Quarantene (usate da quarantena e API)
+# ==================================================================
+ 
+ 
 def add_quarantine(port_id, server_id, server_name, source_ip, honeytoken,
                    original_groups, path=DB_PATH):
     """Registra una VM in quarantena; restituisce l'id della voce."""
@@ -132,44 +169,46 @@ def add_quarantine(port_id, server_id, server_name, source_ip, honeytoken,
             (port_id, server_id, server_name, source_ip, honeytoken,
              original_groups, _now()))
         return cur.lastrowid
-
-
+ 
+ 
 def delete_quarantine(voce_id, path=DB_PATH):
+    """Cancella una voce (se l'isolamento in Neutron non e' riuscito)."""
     with closing(connect(path)) as conn, conn:
         conn.execute("DELETE FROM quarantine WHERE id = ?", (voce_id,))
-
-
+ 
+ 
 def release_quarantine(voce_id, path=DB_PATH):
+    """Segna la quarantena come rilasciata, con data e ora."""
     with closing(connect(path)) as conn, conn:
         conn.execute("UPDATE quarantine SET released_at = ? WHERE id = ?",
                      (_now(), voce_id))
-
-
+ 
+ 
 def active_quarantine_for_port(port_id, path=DB_PATH):
+    """Quarantena attiva su quella porta, o None."""
     with closing(connect(path)) as conn:
         return conn.execute(
             "SELECT * FROM quarantine WHERE port_id = ? AND "
             "released_at IS NULL", (port_id,)).fetchone()
-
-
+ 
+ 
 def list_quarantine(only_active=True, path=DB_PATH):
+    """Quarantene attive (o tutte), dalla piu' recente."""
     query = "SELECT * FROM quarantine"
     if only_active:
         query += " WHERE released_at IS NULL"
     with closing(connect(path)) as conn:
         return conn.execute(query + " ORDER BY id DESC").fetchall()
-
-
-def list_alerts(limit=50, path=DB_PATH):
-    with closing(connect(path)) as conn:
-        return conn.execute(
-            "SELECT * FROM alerts ORDER BY id DESC LIMIT ?",
-            (limit,)).fetchall()
-
-
+ 
+ 
+# ==================================================================
+# Pulizia degli allarmi delle prove
+# ==================================================================
+ 
+ 
 def reset_alerts(path=DB_PATH):
     """Mette da parte gli allarmi delle prove: prima copia il database.
-
+ 
     Toglie gli allarmi e le quarantene gia' rilasciate; esche e
     quarantene attive restano. Restituisce (allarmi tolti, copia).
     """
@@ -180,9 +219,15 @@ def reset_alerts(path=DB_PATH):
         tolti = conn.execute("DELETE FROM alerts").rowcount
         conn.execute("DELETE FROM quarantine WHERE released_at IS NOT NULL")
     return tolti, copia
-
-
+ 
+ 
+# ==================================================================
+# Comandi da terminale (python -m honeystack.db ...)
+# ==================================================================
+ 
+ 
 def main(argv):
+    """Esegue il comando scelto (init, add, list, alerts, reset-alerts)."""
     if len(argv) < 2:
         print(__doc__)
         return 1
@@ -209,7 +254,8 @@ def main(argv):
         print(__doc__)
         return 1
     return 0
-
-
+ 
+ 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+ 

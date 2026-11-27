@@ -1,5 +1,5 @@
 """Honey-Stack - Quarantena delle VM compromesse.
-
+ 
 Quando un'esca viene usata con la password giusta da un indirizzo che
 appartiene a una VM del cloud (floating IP o IP fisso), quella VM e'
 compromessa: Honey-Stack le toglie i security group e mette solo il
@@ -10,24 +10,34 @@ La VM non viene spenta ne' cancellata: resta disponibile per le analisi.
 import json
 import uuid
 from datetime import datetime, timezone
-
+ 
 from honeystack import cloud as cloud_mod
 from honeystack import config, db
-
+ 
 LOG = config.logging.getLogger(__name__)
-
-
+ 
+ 
+# ==================================================================
+# Decisione: questo accesso fa scattare la quarantena?
+# ==================================================================
+ 
+ 
 def da_isolare(esito):
     """Vero se l'esito di un accesso all'esca fa scattare la quarantena."""
     if not config.get("quarantine_enabled"):
         return False
     return esito == "success" or (esito == "failure" and
                                   config.get("quarantine_on_failure"))
-
-
+ 
+ 
+# ==================================================================
+# Isolamento della VM (chiamato dal watcher)
+# ==================================================================
+ 
+ 
 def isola(ip, esca, cloud=None):
     """Mette in quarantena la VM con indirizzo ip; restituisce il suo nome.
-
+ 
     Non fa nulla (e restituisce None) se l'IP non e' di una VM del cloud
     o se la VM e' gia' in quarantena. Un errore viene registrato senza
     fermare il watcher.
@@ -36,16 +46,20 @@ def isola(ip, esca, cloud=None):
         return None
     try:
         cloud = cloud or cloud_mod.Cloud()
+        # 1. dall'IP alla porta Neutron della VM
         porta = cloud.porta_da_ip(ip)
         if porta is None:
             LOG.info("Quarantena: %s non appartiene a una VM del cloud", ip)
             return None
+        # 2. gia' in quarantena: niente da fare
         if db.active_quarantine_for_port(porta["port_id"]):
             return None
+        # 3. nome della VM e gruppo di quarantena del suo progetto
         vm = cloud.nome_vm(porta["server_id"])
         gruppo = cloud.gruppo_quarantena(
             config.get("quarantine_security_group"), porta["project_id"])
-        # prima si salvano i gruppi originali, poi si isola la VM
+        # 4. prima si salvano i gruppi originali, poi si isola la VM;
+        # se Neutron da' errore, la voce appena salvata si cancella
         voce = db.add_quarantine(
             port_id=porta["port_id"], server_id=porta["server_id"],
             server_name=vm, source_ip=ip, honeytoken=esca,
@@ -55,11 +69,13 @@ def isola(ip, esca, cloud=None):
         except Exception:
             db.delete_quarantine(voce)
             raise
+        # 5. allarme e riga QUARANTENA nel log
         nomi = ", ".join(porta["nomi_gruppi"]) or "nessuno"
         db.save_alert(event_id="quarantena-" + uuid.uuid4().hex,
                       user_id="-", name=esca, outcome="quarantena",
                       source_ip=ip,
-                      agent="VM %s isolata (gruppi originali: %s)" % (vm, nomi),
+                      agent="VM %s isolata (gruppi originali: %s)"
+                      % (vm, nomi),
                       event_time=datetime.now(timezone.utc).isoformat())
         LOG.warning("QUARANTENA: VM %s (%s) isolata dopo l'uso dell'esca %s; "
                     "gruppi originali: %s", vm, ip, esca, nomi)
@@ -67,8 +83,13 @@ def isola(ip, esca, cloud=None):
     except Exception:
         LOG.exception("Quarantena della VM con IP %s non riuscita", ip)
         return None
-
-
+ 
+ 
+# ==================================================================
+# Rilascio della VM (chiamato dalle API)
+# ==================================================================
+ 
+ 
 def rilascia_voce(voce, cloud=None):
     """Rimette alla VM in quarantena i gruppi originali (API di rilascio)."""
     cloud = cloud or cloud_mod.Cloud()
@@ -77,3 +98,4 @@ def rilascia_voce(voce, cloud=None):
     LOG.info("Quarantena: VM %s rilasciata, gruppi originali ripristinati",
              voce["server_name"])
     return voce["server_name"]
+ 

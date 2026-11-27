@@ -1,5 +1,5 @@
 """Honey-Stack - Watcher.
-
+ 
 Ascolta le notifiche CADF di Keystone su RabbitMQ, riconosce gli
 honeytoken registrati nel database e salva un allarme per ogni
 tentativo di autenticazione.
@@ -10,36 +10,48 @@ import json
 import signal
 import sys
 import threading
-
+ 
 from oslo_config import cfg
 import oslo_messaging
-
+ 
 from honeystack import config, controllo, correlazione, db, quarantena
-
+ 
 LOG = config.logging.getLogger(__name__)
-
-
+ 
+ 
+# ==================================================================
+# Indirizzo di RabbitMQ, letto dalla configurazione di Keystone
+# ==================================================================
+ 
+ 
 def leggi_transport_url(path=None):
     """Legge l'indirizzo di RabbitMQ dalla configurazione di Keystone."""
     parser = configparser.ConfigParser(strict=False, interpolation=None)
     parser.read(path or config.get("keystone_conf"))
     return parser.get("oslo_messaging_notifications", "transport_url",
                       fallback=None)
-
-
+ 
+ 
+# ==================================================================
+# Ricezione degli eventi di login (chiamata da oslo.messaging)
+# ==================================================================
+ 
+ 
 class AuthEndpoint:
     """Riceve solo gli eventi di autenticazione di Keystone."""
-
+ 
     filter_rule = oslo_messaging.NotificationFilter(
         event_type=r"^identity\.authenticate$")
-
+ 
     def info(self, ctxt, publisher_id, event_type, payload, metadata):
+        """Un evento alla volta; un errore non ferma il servizio."""
         try:
             self._gestisci(payload)
         except Exception:
             LOG.exception("Errore nella gestione di un evento")
-
+ 
     def _gestisci(self, payload):
+        """Se il login e' di un'esca: allarme, correlazione, quarantena."""
         # con debug = True nel file di configurazione si vede l'evento
         # CADF completo: serve a raccogliere i dati per i test
         LOG.debug("Evento CADF: %s", json.dumps(payload))
@@ -66,9 +78,15 @@ class AuthEndpoint:
             correlazione.analizza(host.get("address"))
             if quarantena.da_isolare(payload.get("outcome")):
                 quarantena.isola(host.get("address"), honeytoken["name"])
-
-
+ 
+ 
+# ==================================================================
+# Avvio del servizio (devstack@honey-stack-watcher)
+# ==================================================================
+ 
+ 
 def main():
+    """Avvia il watcher e resta in ascolto finche' non viene fermato."""
     config.setup_log()
     url = leggi_transport_url()
     if not url:
@@ -76,13 +94,16 @@ def main():
                   "transport_url in [oslo_messaging_notifications] di %s",
                   config.get("keystone_conf"))
         sys.exit(1)
+    # crea cartella e tabelle del database, se mancano
     db.connect().close()
     config.attendi(url, "RabbitMQ", porta_predefinita=5672)
-
+ 
+    # chiusura ordinata con systemctl stop (SIGTERM) o Ctrl+C (SIGINT)
     fermati = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: fermati.set())
     signal.signal(signal.SIGINT, lambda *_: fermati.set())
-
+ 
+    # in ascolto degli eventi di Keystone, con una coda propria
     transport = oslo_messaging.get_notification_transport(cfg.CONF, url=url)
     targets = [oslo_messaging.Target(topic="notifications",
                                      exchange="keystone")]
@@ -91,16 +112,20 @@ def main():
         executor="threading", pool="honeystack")
     listener.start()
     LOG.info("Honey-Stack watcher in ascolto... (Ctrl+C per uscire)")
+ 
+    # controllo periodico delle esche in un thread separato
     scheduler = threading.Thread(target=controllo.ciclo, args=(fermati,),
                                  name="controllo-esche", daemon=True)
     scheduler.start()
+    # resta attivo finche' non arriva lo stop, poi chiude in ordine
     while not fermati.wait(1):
         pass
     LOG.info("Arresto del watcher...")
     listener.stop()
     listener.wait()
     scheduler.join(timeout=10)
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
+ 

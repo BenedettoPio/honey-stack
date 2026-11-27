@@ -1,5 +1,5 @@
 """Honey-Stack - Comando honey-stack.
-
+ 
 Client delle API REST di Honey-Stack, come il client openstack lo e' delle
 API degli altri servizi: non usa il database ne' l'utente di servizio.
 Le credenziali sono quelle dell'operatore (source openrc admin admin) e
@@ -19,27 +19,37 @@ import json
 import os
 import sys
 from urllib.parse import quote
-
+ 
+# ==================================================================
+# Impostazioni
+# ==================================================================
+ 
+# Tipo del servizio nel catalogo di Keystone e file esca scaricabili
 TIPO_SERVIZIO = "deception"
 FILE_ESCA = ("clouds.yaml", "openrc")
 # creare una VM con l'esca richiede qualche minuto
 ATTESA = 60
 ATTESA_VM = 900
-
-
+ 
+ 
+# ==================================================================
+# Chiamate alle API REST (l'unico punto che parla con le API)
+# ==================================================================
+ 
+ 
 class Errore(Exception):
     """Risposta di errore delle API, con il loro messaggio."""
-
-
+ 
+ 
 def _sessione():
     """Sessione Keystone con le credenziali dell'ambiente (openrc)."""
     import openstack
     return openstack.connect().session
-
-
+ 
+ 
 def richiesta(metodo, percorso, dati=None, attesa=ATTESA):
     """Chiama le API di Honey-Stack con il token dell'operatore.
-
+ 
     Restituisce (codice HTTP, corpo in byte). L'indirizzo delle API viene
     dal catalogo, il token lo aggiunge la sessione di Keystone.
     """
@@ -53,8 +63,8 @@ def richiesta(metodo, percorso, dati=None, attesa=ATTESA):
         raise Errore("API di Honey-Stack non raggiungibili (serve source "
                      "openrc admin admin): %s" % errore)
     return risposta.status_code, risposta.content
-
-
+ 
+ 
 def _chiama(metodo, percorso, dati=None, attesa=ATTESA):
     """Come richiesta, ma un codice di errore diventa un'eccezione."""
     codice, corpo = richiesta(metodo, percorso, dati=dati, attesa=attesa)
@@ -65,12 +75,18 @@ def _chiama(metodo, percorso, dati=None, attesa=ATTESA):
             messaggio = "HTTP %s" % codice
         raise Errore(messaggio)
     return corpo
-
-
+ 
+ 
 def _json(metodo, percorso, dati=None, attesa=ATTESA):
+    """Come _chiama, ma restituisce la risposta letta come JSON."""
     return json.loads(_chiama(metodo, percorso, dati=dati, attesa=attesa))
-
-
+ 
+ 
+# ==================================================================
+# Funzioni di supporto ai comandi files e release
+# ==================================================================
+ 
+ 
 def scarica_file_esca(nome, cartella):
     """Salva clouds.yaml e openrc dell'esca in cartella (permessi 600)."""
     os.makedirs(cartella, mode=0o700, exist_ok=True)
@@ -82,8 +98,8 @@ def scarica_file_esca(nome, cartella):
             f.write(contenuto)
         os.chmod(percorso, 0o600)
     return cartella
-
-
+ 
+ 
 def quarantena_attiva(vm_o_ip):
     """Quarantena attiva per nome della VM, IP o id della voce."""
     for voce in _json("GET", "/api/v1/quarantines"):
@@ -91,9 +107,15 @@ def quarantena_attiva(vm_o_ip):
                        str(voce["id"])):
             return voce
     return None
-
-
+ 
+ 
+# ==================================================================
+# Comandi: ognuno chiama una API e stampa il risultato
+# ==================================================================
+ 
+ 
 def main(argv):
+    """Esegue il comando scelto; restituisce il codice di uscita."""
     if len(argv) < 2:
         print(__doc__)
         return 1
@@ -149,12 +171,13 @@ def main(argv):
         print("Errore:", errore)
         return 1
     return 0
-
-
+ 
+ 
 def cli():
     """Punto di ingresso del comando honey-stack."""
     sys.exit(main(sys.argv))
-
-
+ 
+ 
 if __name__ == "__main__":
     cli()
+ 
